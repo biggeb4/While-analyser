@@ -4,11 +4,40 @@ module Parser
 open System
 open FParsec
 // ---------- AST minimale ----------
-
+[<CustomComparison; CustomEquality>]
 type Bound =
     | MinusInf
     | PlusInf
     | Finite of int
+    interface IComparable with
+        member this.CompareTo other =
+            match other with
+            | :? Bound as o ->
+                match this, o with
+                | MinusInf, MinusInf -> 0
+                | PlusInf, PlusInf -> 0
+                | Finite a, Finite b -> compare a b
+
+                | MinusInf, _ -> -1
+                | _, MinusInf -> 1
+
+                | PlusInf, _ -> 1
+                | _, PlusInf -> -1
+            | _ -> invalidArg "other" "not a Bound"
+    override this.Equals(other) =
+        match other with
+        | :? Bound as o ->
+            match this, o with
+            | MinusInf, MinusInf -> true
+            | PlusInf, PlusInf -> true
+            | Finite a, Finite b -> a = b
+            | _ -> false
+        | _ -> false
+    override this.GetHashCode() =
+        match this with
+        | MinusInf -> hash 0
+        | PlusInf -> hash 1
+        | Finite v -> hash (2,v)
 
 type Expr =
     | Int of int

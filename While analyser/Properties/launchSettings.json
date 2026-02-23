@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "While analyser": {
+      "commandName": "Project",
+      "commandLineArgs": "C:\\Users\\bigge\\source\\repos\\whileProgram.txt"
+    }
+  }
+}

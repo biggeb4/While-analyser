@@ -42,12 +42,12 @@ type Bound =
 type Expr =
     | Int of int
     | Var of string
+    | Minus of Expr
+    | InputInt of Bound*Bound
     | Add of Expr * Expr
     | Sub of Expr * Expr
     | Div of Expr * Expr
     | Mul of Expr * Expr
-    | Minus of Expr
-    | InputInt of Bound*Bound
 
 type Cond =
     | Equi of Expr * Expr

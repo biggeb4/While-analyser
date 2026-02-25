@@ -40,11 +40,17 @@ let main argv =
                 let cfg = buildCfg (Fresh()) astfirstline.Value
                 let startingState=analyseStartingState (cfg,cfg.Entry,Map.empty)
                 printfn "Dominio: [%A,%A]" minBound maxBound
-                printfn "Stato iniziale: %A" startingState
-            let ast=test text
-            if ast.IsSome then
-                let cfg = buildCfg (Fresh()) ast.Value
-                printCfg cfg
+                for KeyValue(var,interval) in startingState do
+                    printfn "%s = %A" var interval
+                let ast=test text
+                if ast.IsSome then
+                    let cfg = buildCfg (Fresh()) ast.Value
+                    printCfg cfg
+                    //analyseProgram (cfg, cfg.Entry, startingState)
+                    //for KeyValue(id,state) in states do
+                    //    printfn "Node %d: " id
+                    //    for KeyValue(var,interval) in state do
+                    //        printfn "   %s = %A" var interval
             0
         | Error msg ->
             eprintfn "%s" msg

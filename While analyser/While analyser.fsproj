@@ -9,6 +9,8 @@
   <ItemGroup>
     <Compile Include="Parser.fs" />
     <Compile Include="CFGBuilder.fs" />
+    <Compile Include="Eval.fs" />
+    <Compile Include="Refine.fs" />
     <Compile Include="Analyser.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>

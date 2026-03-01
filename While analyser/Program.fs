@@ -3,6 +3,7 @@ open System.IO
 open Parser
 open CFGBuilder
 open Analyser
+open Eval
 
 let tryReadFirstLineAndProgram (path: string): Result<string*string, string> =
     try
@@ -46,11 +47,11 @@ let main argv =
                 if ast.IsSome then
                     let cfg = buildCfg (Fresh()) ast.Value
                     printCfg cfg
-                    //analyseProgram (cfg, cfg.Entry, startingState)
-                    //for KeyValue(id,state) in states do
-                    //    printfn "Node %d: " id
-                    //    for KeyValue(var,interval) in state do
-                    //        printfn "   %s = %A" var interval
+                    analyseProgram (cfg, cfg.Entry, startingState)
+                    for KeyValue(id,state) in states do
+                        printfn "Node %d: " id
+                        for KeyValue(var,interval) in state do
+                            printfn "   %s = %A" var interval
             0
         | Error msg ->
             eprintfn "%s" msg

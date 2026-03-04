@@ -127,7 +127,6 @@ let mulIntervals i1 i2 =
     | Bottom, _ | _, Bottom ->
         Bottom
     | i1, i2 ->
-        // se unbounded * contiene 0 -> Top (nel tuo dominio: [-inf,+inf] clippato)
         if (hasUnbounded i1 && containsZero i2) || (hasUnbounded i2 && containsZero i1) then
             createVarBound(MinusInf, PlusInf)
         else
@@ -184,7 +183,7 @@ let divIntervals i1 i2 =
                     | Finite _, MinusInf ->
                         Some (Finite 0)
 
-                    // ∞ / ∞ indeterminato: scarta
+                    // ∞ / ∞ indeterminato
                     | PlusInf, PlusInf
                     | MinusInf, MinusInf
                     | PlusInf, MinusInf

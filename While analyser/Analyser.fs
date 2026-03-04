@@ -94,11 +94,7 @@ let transfer (lbl:EdgeLabel) (sIn:State) : State =
 
         | Guard (c, takeTrue) ->
             if takeTrue then assumeCond (sIn, c)
-            else assumeCond (sIn, Neg c)   // Neg = ¬c nel tuo AST
-
-        // queste di solito stanno solo nella prima riga; se capitano nel mezzo le ignori
-        | EdgeLabel.MaxBound _ -> sIn
-        | EdgeLabel.MinBound _ -> sIn
+            else assumeCond (sIn, Neg c)  
 
 let analyseFixpoint (cfg:CFG) (entryState:State) : Map<NodeId, State> =
     let mutable inState : Map<NodeId, State> =

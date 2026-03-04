@@ -110,7 +110,6 @@ let refineMulLeft (target:VariableBound) (b2:VariableBound) : VariableBound =
             | Interval(Finite a, Finite b) ->
                 preimageByPosY target a b
             | _ ->
-                // pos ma non finito: fallback safe (puoi raffinare poco)
                 createVarBound (MinusInf, PlusInf)
 
         let fromNeg =
@@ -126,7 +125,6 @@ let refineMulLeft (target:VariableBound) (b2:VariableBound) : VariableBound =
             | _ ->
                 createVarBound (MinusInf, PlusInf)
 
-        // union (approssimata) dei due insiemi: lub
         lub fromNeg fromPos
 
 let enforceNonZero (vb:VariableBound) : VariableBound =
@@ -322,11 +320,8 @@ let rec assumeCond(state:State,cond:Cond) =
         let ev2 = evaluateExpr state e2
         match isSingleton ev1.bound, isSingleton ev2.bound with
         | Some a, Some b when a = b ->
-            // condizione impossibile su questo ramo: smashed bottom "globale"
-            // tu oggi non hai smashed bottom a livello State, quindi almeno:
             BottomState
         | _ ->
-            // in intervalli non puoi togliere un punto senza disgiunzioni
             state
 
 

@@ -246,7 +246,6 @@ let pAssert : Parser<Stmt, unit> =
 
 do stmtRef.Value <- choice [ pSkip;  pIf; pWhile; pAssert; pMaxBound; pMinBound; pAssign;]
 
-// Programma = lista di statement separati da ';'
 let pProgram : Parser<Stmt, unit> =
     ws >>. pSeq .>> ws .>> eof
 

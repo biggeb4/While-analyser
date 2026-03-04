@@ -4,12 +4,12 @@ open Parser
 type NodeId = int
 
 type EdgeLabel =
-    | Epsilon                      // “passaggio” senza effetto (comodo per join)
-    | MaxBound of Bound              // maxBound b
-    | MinBound of Bound              // minBound b
-    | Assign of string * Expr      // x := e
-    | Guard of Cond * bool         // cond=true o cond=false
-    | Assert of Cond               // assert cond
+    | Epsilon                      
+    | MaxBound of Bound              
+    | MinBound of Bound              
+    | Assign of string * Expr      
+    | Guard of Cond * bool        
+    | Assert of Cond               
 
 type CFG =
     { Entry: NodeId
@@ -25,7 +25,6 @@ module internal Cfg =
         { g with Edges = g.Edges |> Map.add fromN (out @ [ (lbl, toN) ]) }
 
     let merge (g1: CFG) (g2: CFG) =
-        // unione “semplice”: concatena le liste di archi dei nodi
         let edges =
             (g1.Edges, g2.Edges)
             ||> Map.fold (fun acc k v ->
@@ -83,7 +82,7 @@ let buildCfg (fresh: Fresh) (stmt: Stmt) : CFG =
                     let merged = Cfg.merge acc g2
                     merged
                     |> Cfg.addEdge acc.Exit Epsilon g2.Entry
-                    |> fun g -> { g with Entry = acc.Entry; Exit = g2.Exit }   // ✅ aggiorna Exit
+                    |> fun g -> { g with Entry = acc.Entry; Exit = g2.Exit }   
                 ) gFirst
         | If (c, sThen, sElse) ->
             let gThen = build sThen

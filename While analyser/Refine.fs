@@ -10,9 +10,14 @@ let Intersect a b =
     | Interval(l1,u1), Interval(l2,u2) -> createVarBound(max l1 l2, min u1 u2)
 
 let refineVar (state:State) (x:string) (target:VariableBound) =
-    let old = state |> Map.tryFind x |> Option.defaultValue Bottom
-    let neu = Intersect old target
-    state |> Map.add x neu
+    match state with
+    | BottomState -> BottomState
+    | Vars v ->
+        let old = v |> Map.tryFind x |> Option.defaultValue Bottom
+        let neu = Intersect old target
+        match neu with
+        | Bottom -> BottomState 
+        | _ -> Vars(v |> Map.add x neu)
 
 let boundOf (trace:Map<Expr,VariableBound>) (e:Expr) =
     trace |> Map.tryFind e |> Option.defaultValue (createVarBound(MinusInf, PlusInf))
@@ -201,9 +206,79 @@ let rec refineExpr (state:State) (expr:Expr) (target:VariableBound) (trace:Map<E
         |> fun s -> refineExpr s e1 t1 trace
         |> fun s -> refineExpr s e2 t2 trace
 
+let lubState s1 s2 =
+    match s1,s2 with
+    | BottomState, s
+    | s, BottomState -> s
+    | Vars m1, Vars m2 ->
+        let keys =
+            Seq.append (m1 |> Map.toSeq |> Seq.map fst) (m2 |> Map.toSeq |> Seq.map fst)
+            |> Set.ofSeq
+
+        let merged =
+            keys
+            |> Seq.fold (fun acc k ->
+                let v1 = m1 |> Map.tryFind k |> Option.defaultValue Bottom
+                let v2 = m2 |> Map.tryFind k |> Option.defaultValue Bottom
+                acc |> Map.add k (lub v1 v2)
+            ) Map.empty
+
+        Vars merged
+
+let rec negateCond c =
+    match c with
+    | True -> False
+    | False -> True
+    | Neg x -> x
+    | And(a,b) -> Or(negateCond a, negateCond b)
+    | Or(a,b) -> And(negateCond a, negateCond b)
+
+    | Equi(a,b) -> Diff(a,b)
+    | Diff(a,b) -> Equi(a,b)
+    | Min(a,b) -> MagEqui(a,b)
+    | MinEqui(a,b) -> Mag(a,b)
+    | Mag(a,b) -> MinEqui(a,b)
+    | MagEqui(a,b) -> Min(a,b)
+
+let getLU = function
+  | Bottom -> (PlusInf, MinusInf) // inconsistente
+  | Interval(l,u) -> (l,u)
+
+let predBound (b:Bound) =
+  match b with
+  | Finite k -> Finite (k-1)
+  | PlusInf -> PlusInf
+  | MinusInf -> MinusInf
+
+let succBound (b:Bound) =
+  match b with
+  | Finite k -> Finite (k+1)
+  | PlusInf -> PlusInf
+  | MinusInf -> MinusInf
+
+let isSingleton = function
+  | Interval(Finite a, Finite b) when a=b -> Some a
+  | _ -> None
+
 let rec assumeCond(state:State,cond:Cond) =
-    match cond with
-    | Equi(e1,e2) ->
+    match cond,state with
+    | _, BottomState -> BottomState
+    | True,_ -> state
+
+    | False,_ -> BottomState
+
+    | Neg c,_ ->
+        assumeCond(state, negateCond c)
+
+    | And(c1,c2),_ ->
+        let s1 = assumeCond(state,c1)
+        assumeCond(s1,c2)
+
+    | Or(c1,c2),_ ->
+        let s1 = assumeCond(state,c1)
+        let s2 = assumeCond(state,c2)
+        lubState s1 s2
+    | Equi(e1,e2),_ ->
         let evalE1 = evaluateExpr state e1
         let evalE2 = evaluateExpr state e2
         let trace = mergeMaps evalE1.steps evalE2.steps
@@ -211,3 +286,47 @@ let rec assumeCond(state:State,cond:Cond) =
         let s1 = refineExpr state e1 common trace
         let s2 = refineExpr s1 e2 common trace
         s2
+    | MinEqui(e1,e2),_ ->
+        let ev1 = evaluateExpr state e1
+        let ev2 = evaluateExpr state e2
+        let trace = mergeMaps ev1.steps ev2.steps
+        let (l1,u1) = getLU ev1.bound
+        let (l2,u2) = getLU ev2.bound
+        // e1 ∈ (-inf, u2], e2 ∈ [l1, +inf)
+        let t1 = createVarBound(MinusInf, u2)
+        let t2 = createVarBound(l1, PlusInf)
+        state |> fun s -> refineExpr s e1 t1 trace
+            |> fun s -> refineExpr s e2 t2 trace
+    | Min(e1,e2),_ ->
+        let ev1 = evaluateExpr state e1
+        let ev2 = evaluateExpr state e2
+        let trace = mergeMaps ev1.steps ev2.steps
+        let (l1,u1) = getLU ev1.bound
+        let (l2,u2) = getLU ev2.bound
+        let t1 = createVarBound(MinusInf, predBound u2)
+        let t2 = createVarBound(succBound l1, PlusInf)
+        state |> fun s -> refineExpr s e1 t1 trace
+            |> fun s -> refineExpr s e2 t2 trace
+
+      // e1 >= e2  (riuso <=)
+    | MagEqui(e1,e2),_ ->
+        assumeCond(state, MinEqui(e2,e1))
+
+    // e1 > e2  (riuso <)
+    | Mag(e1,e2),_ ->
+        assumeCond(state, Min(e2,e1))
+
+    // e1 != e2
+    | Diff(e1,e2),_ ->
+        let ev1 = evaluateExpr state e1
+        let ev2 = evaluateExpr state e2
+        match isSingleton ev1.bound, isSingleton ev2.bound with
+        | Some a, Some b when a = b ->
+            // condizione impossibile su questo ramo: smashed bottom "globale"
+            // tu oggi non hai smashed bottom a livello State, quindi almeno:
+            BottomState
+        | _ ->
+            // in intervalli non puoi togliere un punto senza disgiunzioni
+            state
+
+

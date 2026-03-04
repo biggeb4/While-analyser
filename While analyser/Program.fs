@@ -39,19 +39,25 @@ let main argv =
             let astfirstline = runParser line
             if astfirstline.IsSome then
                 let cfg = buildCfg (Fresh()) astfirstline.Value
-                let startingState=analyseStartingState (cfg,cfg.Entry,Map.empty)
+                let startingState=analyseStartingState (cfg,cfg.Entry,Vars(Map.empty))
                 printfn "Dominio: [%A,%A]" minBound maxBound
-                for KeyValue(var,interval) in startingState do
-                    printfn "%s = %A" var interval
+                match startingState with
+                | BottomState -> printfn "Bottom state iniziale"
+                | Vars vars ->
+                    for KeyValue(var,interval) in vars do
+                        printfn "%s = %A" var interval
                 let ast=test text
                 if ast.IsSome then
                     let cfg = buildCfg (Fresh()) ast.Value
                     printCfg cfg
-                    analyseProgram (cfg, cfg.Entry, startingState)
-                    for KeyValue(id,state) in states do
-                        printfn "Node %d: " id
-                        for KeyValue(var,interval) in state do
-                            printfn "   %s = %A" var interval
+                    let resultStates = analyseFixpoint cfg startingState
+                    for KeyValue(id,st) in resultStates do
+                        printfn "Node %d:" id
+                        match st with
+                        | BottomState -> printfn "  Bottom state"
+                        | Vars m ->
+                            for KeyValue(v,b) in m do
+                                printfn "  %s = %A" v b
             0
         | Error msg ->
             eprintfn "%s" msg

@@ -5,7 +5,10 @@ open Parser
 type VariableBound = 
     |Interval of Bound * Bound
     |Bottom
-type State = Map<string, VariableBound>
+
+type State = 
+    |Vars of Map<string, VariableBound>
+    |BottomState
 
 let mutable states : Map<NodeId, State> = Map.empty
 let mutable errors :Set<string> = Set.empty
@@ -214,8 +217,11 @@ let rec evaluateExpr (state:State)(expr:Expr)=
     match expr with
     | Int v -> mk (Interval(Finite v, Finite v)) Set.empty (Map.empty |> Map.add expr (Interval(Finite v, Finite v)))
     | Var v -> 
-        let res = state |> Map.tryFind v |> Option.defaultValue Bottom
-        mk res (Set.singleton v) (Map.empty |> Map.add expr res)
+        match state with
+        | BottomState -> mk Bottom Set.empty (Map.empty |> Map.add expr Bottom)
+        | Vars s ->
+            let res = s |> Map.tryFind v |> Option.defaultValue Bottom
+            mk res (Set.singleton v) (Map.empty |> Map.add expr res)
 
     | InputInt (lower, upper) -> 
         let res=createVarBound(lower, upper)

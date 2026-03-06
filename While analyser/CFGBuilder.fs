@@ -8,7 +8,8 @@ type EdgeLabel =
     | MaxBound of Bound              
     | MinBound of Bound              
     | Assign of string * Expr      
-    | Guard of Cond * bool        
+    | GuardIf of Cond * bool   
+    | GuardWhile of Cond * bool         
     | Assert of Cond               
 
 type CFG =
@@ -92,8 +93,8 @@ let buildCfg (fresh: Fresh) (stmt: Stmt) : CFG =
             Cfg.empty
             |> fun g -> { g with Entry = test; Exit = join }
             |> fun g -> Cfg.merge g (Cfg.merge gThen gElse)
-            |> Cfg.addEdge test (Guard (c, true)) gThen.Entry
-            |> Cfg.addEdge test (Guard (c, false)) gElse.Entry
+            |> Cfg.addEdge test (GuardIf (c, true)) gThen.Entry
+            |> Cfg.addEdge test (GuardIf (c, false)) gElse.Entry
             |> Cfg.addEdge gThen.Exit Epsilon join
             |> Cfg.addEdge gElse.Exit Epsilon join
         | While (c, body) ->
@@ -103,8 +104,8 @@ let buildCfg (fresh: Fresh) (stmt: Stmt) : CFG =
             Cfg.empty
             |> fun g -> { g with Entry = test; Exit = exit }
             |> fun g -> Cfg.merge g gBody
-            |> Cfg.addEdge test (Guard (c, true)) gBody.Entry
-            |> Cfg.addEdge test (Guard (c, false)) exit
+            |> Cfg.addEdge test (GuardWhile (c, true)) gBody.Entry
+            |> Cfg.addEdge test (GuardWhile (c, false)) exit
             |> Cfg.addEdge gBody.Exit Epsilon test
     build stmt
 
@@ -145,8 +146,10 @@ let labelToString lbl =
     | MaxBound b -> sprintf "maxBound %s" (boundToString b)
     | MinBound b -> sprintf "minBound %s" (boundToString b)
     | Assign(x,e) -> sprintf "%s := %s" x (exprToString e)
-    | Guard(c,true) -> sprintf "[%s] true" (condToString c)
-    | Guard(c,false) -> sprintf "[%s] false" (condToString c)
+    | GuardIf(c,true) -> sprintf "[%s] true" (condToString c)
+    | GuardIf(c,false) -> sprintf "[%s] false" (condToString c)
+    | GuardWhile(c,true) -> sprintf "[%s] true" (condToString c)
+    | GuardWhile(c,false) -> sprintf "[%s] false" (condToString c)
     | Assert c -> sprintf "assert %s" (condToString c)
 
 let printCfg (cfg: CFG) =

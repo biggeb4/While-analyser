@@ -11,7 +11,7 @@ type State =
     |BottomState
 
 let mutable states : Map<NodeId, State> = Map.empty
-let mutable errors :Set<string> = Set.empty
+let mutable warnings :Set<string> = Set.empty
 let mutable maxBound = Bound.PlusInf
 let mutable minBound = Bound.MinusInf
 
@@ -62,7 +62,8 @@ let isNegative (interval) =
         | PlusInf, _ | _, MinusInf -> true
     | Bottom -> false
 
-let lub a b =
+//lub: least upper bound (join) tra due VariableBound
+let joinIntervals a b =
     match a, b with
     | Bottom, x | x, Bottom -> x
 
@@ -75,6 +76,7 @@ let unionOpt s1 s2 =
     | Some s, None
     | None, Some s -> Some s
     | Some a, Some b -> Some (Set.union a b)
+
 type EvalRes =
   { bound: VariableBound
     vars: Set<string>
@@ -196,16 +198,16 @@ let divIntervals i1 i2 =
                 createVarBound(List.min vals, List.max vals)
         let res =
             if l2 = Finite 0 && u2 = Finite 0 then
-                errors <- errors |> Set.add "divisione per zero"
+                warnings <- warnings |> Set.add "divisione per zero"
                 Bottom
             elif containsZero i2 then
-                errors <- errors |> Set.add "potrebbe dividere per zero"
+                warnings <- warnings |> Set.add "potrebbe dividere per zero"
                 let parts =
                     [ if l2 < Finite 0 then yield (l2, Finite -1)
                       if u2 > Finite 0 then yield (Finite 1, u2) ]
                 parts
                 |> List.map divNoZero
-                |> List.reduce lub
+                |> List.reduce joinIntervals
             else
                 divNoZero (l2,u2)
         res

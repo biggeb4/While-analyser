@@ -74,11 +74,11 @@ let lubState s1 s2 =
             |> Seq.fold (fun acc k ->
                 let v1 = m1 |> Map.tryFind k |> Option.defaultValue Bottom
                 let v2 = m2 |> Map.tryFind k |> Option.defaultValue Bottom
-                acc |> Map.add k (lub v1 v2)
+                acc |> Map.add k (joinIntervals v1 v2)
             ) Map.empty
         Vars merged
 
-let transfer (lbl:EdgeLabel) (sIn:State) : State =
+let transfer (nodeId:NodeId) (lbl:EdgeLabel) (sIn:State) : State =
     match sIn with
     | BottomState -> BottomState
     | Vars vars ->
@@ -92,9 +92,30 @@ let transfer (lbl:EdgeLabel) (sIn:State) : State =
         | EdgeLabel.Assert c ->
             assumeCond (sIn, c)
 
-        | Guard (c, takeTrue) ->
-            if takeTrue then assumeCond (sIn, c)
-            else assumeCond (sIn, Neg c)  
+        | GuardIf (c, takeTrue) ->
+            let sTrue  = assumeCond (sIn, c)
+            let sFalse = assumeCond (sIn, Neg c)
+
+            match sTrue, sFalse with
+            | BottomState, _ ->
+                warnings <- warnings |> Set.add ("guardia sempre vera nel if node: "+string nodeId)
+            | _, BottomState ->
+                warnings <- warnings |> Set.add ("guardia sempre vera nel if node: "+string nodeId)
+            | _ -> ()
+
+            if takeTrue then sTrue else sFalse
+            
+        | GuardWhile (c, takeTrue) ->
+            let sTrue  = assumeCond (sIn, c)
+            let sFalse = assumeCond (sIn, Neg c)
+
+            match sTrue, sFalse with
+            | _, BottomState ->
+                warnings <- warnings |> Set.add ("possibile loop infinita nel while node: "+string nodeId)
+            | _ -> ()
+
+            if takeTrue then sTrue else sFalse
+            
 
 let analyseFixpoint (cfg:CFG) (entryState:State) : Map<NodeId, State> =
     let mutable inState : Map<NodeId, State> =
@@ -115,7 +136,7 @@ let analyseFixpoint (cfg:CFG) (entryState:State) : Map<NodeId, State> =
         | None -> ()
         | Some outs ->
             for (lbl, succ) in outs do
-                let sOut = transfer lbl sN
+                let sOut = transfer n lbl sN
 
                 let oldSucc = inState |> Map.tryFind succ |> Option.defaultValue BottomState
                 let joined = lubState oldSucc sOut

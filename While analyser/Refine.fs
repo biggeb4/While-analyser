@@ -35,11 +35,6 @@ let boundLe a b =
 let boundMin a b = if boundLe a b then a else b
 let boundMax a b = if boundLe a b then b else a
 
-let zeroIn (vb:VariableBound) =
-    match vb with
-    | Bottom -> false
-    | Interval(l,u) -> boundLe l (Finite 0) && boundLe (Finite 0) u
-
 let floorDivInt (a:int) (k:int) =
     // k > 0
     if a >= 0 then a / k
@@ -64,7 +59,7 @@ let ceilDivBoundByPos (b:Bound) (k:int) =
     | PlusInf -> PlusInf
     | Finite a -> Finite (ceilDivInt a k)
 
-let preimageByPosY (target:VariableBound) (a:int) (b:int) : VariableBound =
+let preimageByPos (target:VariableBound) (a:int) (b:int) : VariableBound =
     // y in [a,b], a>=1
     match target with
     | Bottom -> Bottom
@@ -97,7 +92,7 @@ let refineMulLeft (target:VariableBound) (b2:VariableBound) : VariableBound =
     | Bottom, _ | _, Bottom -> Bottom
 
     // Se posso scegliere y=0 e 0 è ammesso dal target -> qualunque x va bene
-    | _, _ when zeroIn b2 && zeroIn target ->
+    | _, _ when containsZero b2 && containsZero target ->
         createVarBound (MinusInf, PlusInf)
 
     | _ ->
@@ -108,7 +103,7 @@ let refineMulLeft (target:VariableBound) (b2:VariableBound) : VariableBound =
             match pos with
             | Bottom -> Bottom
             | Interval(Finite a, Finite b) ->
-                preimageByPosY target a b
+                preimageByPos target a b
             | _ ->
                 createVarBound (MinusInf, PlusInf)
 
@@ -121,11 +116,11 @@ let refineMulLeft (target:VariableBound) (b2:VariableBound) : VariableBound =
                 let za = -b
                 let zb = -a
                 // (-x)*z in target  =>  x in - preimageByPosY(target, za, zb)
-                preimageByPosY target za zb |> minusInterval
+                preimageByPos target za zb |> minusInterval
             | _ ->
                 createVarBound (MinusInf, PlusInf)
 
-        lub fromNeg fromPos
+        joinIntervals fromNeg fromPos
 
 let enforceNonZero (vb:VariableBound) : VariableBound =
     match vb with
@@ -150,7 +145,7 @@ let refineDivNumerator (target:VariableBound) (den:VariableBound) : VariableBoun
             let neg, pos = splitNegPos den'   // come nel codice di Mul
             let partMul d =
                 if d = Bottom then Bottom else mulIntervals target d
-            lub (partMul neg) (partMul pos)
+            joinIntervals (partMul neg) (partMul pos)
 
 let rec refineExpr (state:State) (expr:Expr) (target:VariableBound) (trace:Map<Expr,VariableBound>) : State =
     match expr with
@@ -218,7 +213,7 @@ let lubState s1 s2 =
             |> Seq.fold (fun acc k ->
                 let v1 = m1 |> Map.tryFind k |> Option.defaultValue Bottom
                 let v2 = m2 |> Map.tryFind k |> Option.defaultValue Bottom
-                acc |> Map.add k (lub v1 v2)
+                acc |> Map.add k (joinIntervals v1 v2)
             ) Map.empty
 
         Vars merged

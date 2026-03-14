@@ -23,6 +23,13 @@ let mutable minBound = Bound.MinusInf
 let mergeMaps m1 m2 =
     Map.fold (fun acc k v -> Map.add k v acc) m1 m2
 
+let unionOpt s1 s2 =
+    match s1, s2 with
+    | None, None -> None
+    | Some s, None
+    | None, Some s -> Some s
+    | Some a, Some b -> Some (Set.union a b)
+
 
 let negateBound b =
     match b with
@@ -77,13 +84,6 @@ let joinIntervals a b =
 
     | Interval(l1,u1), Interval(l2,u2) ->
         Interval(min l1 l2, max u1 u2)
-
-let unionOpt s1 s2 =
-    match s1, s2 with
-    | None, None -> None
-    | Some s, None
-    | None, Some s -> Some s
-    | Some a, Some b -> Some (Set.union a b)
 
 let minusInterval i =
     match i with

@@ -58,6 +58,9 @@ let main argv =
                         | Vars m ->
                             for KeyValue(v,b) in m do
                                 printfn "  %s = %A" v b
+                    printfn "Warnings:" 
+                    for warning in warnings do
+                        printfn "  %s" warning
             0
         | Error msg ->
             eprintfn "%s" msg

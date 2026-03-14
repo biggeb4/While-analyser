@@ -10,10 +10,19 @@ type State =
     |Vars of Map<string, VariableBound>
     |BottomState
 
-let mutable states : Map<NodeId, State> = Map.empty
+
+type EvalRes =
+  { bound: VariableBound
+    vars: Set<string>
+    steps: Map<Expr, VariableBound> }
+
 let mutable warnings :Set<string> = Set.empty
 let mutable maxBound = Bound.PlusInf
 let mutable minBound = Bound.MinusInf
+
+let mergeMaps m1 m2 =
+    Map.fold (fun acc k v -> Map.add k v acc) m1 m2
+
 
 let negateBound b =
     match b with
@@ -62,7 +71,6 @@ let isNegative (interval) =
         | PlusInf, _ | _, MinusInf -> true
     | Bottom -> false
 
-//lub: least upper bound (join) tra due VariableBound
 let joinIntervals a b =
     match a, b with
     | Bottom, x | x, Bottom -> x
@@ -76,14 +84,6 @@ let unionOpt s1 s2 =
     | Some s, None
     | None, Some s -> Some s
     | Some a, Some b -> Some (Set.union a b)
-
-type EvalRes =
-  { bound: VariableBound
-    vars: Set<string>
-    steps: Map<Expr, VariableBound> }
-
-let mergeMaps m1 m2 =
-    Map.fold (fun acc k v -> Map.add k v acc) m1 m2
 
 let minusInterval i =
     match i with
@@ -213,7 +213,7 @@ let divIntervals i1 i2 =
         res
 
 
-let rec evaluateExpr (state:State)(expr:Expr)=
+let rec evaluateExpr (state:State)(expr:Expr): EvalRes =
     let inline mk v vars steps = { bound=v; vars=vars; steps=steps }
     match expr with
     | Int v -> mk (Interval(Finite v, Finite v)) Set.empty (Map.empty |> Map.add expr (Interval(Finite v, Finite v)))

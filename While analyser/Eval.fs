@@ -164,7 +164,6 @@ let divIntervals i1 i2 =
     | Interval(l1,u1), Interval(l2,u2) ->
         let divNoZero (dl,du) : VariableBound =
             let candidates = [ (l1,dl); (l1,du); (u1,dl); (u1,du) ]
-
             let vals =
                 candidates
                 |> List.choose (fun (a,b) ->

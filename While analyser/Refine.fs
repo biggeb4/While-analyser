@@ -87,18 +87,27 @@ let splitNegPos (vb:VariableBound) =
             else Bottom
         neg, pos
 
+let enforceNonZero (vb:VariableBound) : VariableBound =
+    match vb with
+    | Bottom -> Bottom
+    | Interval(l,u) ->
+        // se è esattamente 0 -> impossibile
+        if l = Finite 0 && u = Finite 0 then Bottom
+        // se parte da 0, alza a 1
+        elif l = Finite 0 then createVarBound (Finite 1, u)
+        // se finisce a 0, abbassa a -1
+        elif u = Finite 0 then createVarBound (l, Finite -1)
+        else vb
+
 let refineMulLeft (target:VariableBound) (b2:VariableBound) : VariableBound =
     match target, b2 with
     | Bottom, _ | _, Bottom -> Bottom
-
     // Se posso scegliere y=0 e 0 è ammesso dal target -> qualunque x va bene
     | _, _ when containsZero b2 && containsZero target ->
         createVarBound (MinusInf, PlusInf)
-
     | _ ->
         // consideriamo i due pezzi senza zero
         let neg, pos = splitNegPos b2
-
         let fromPos =
             match pos with
             | Bottom -> Bottom
@@ -106,7 +115,6 @@ let refineMulLeft (target:VariableBound) (b2:VariableBound) : VariableBound =
                 preimageByPos target a b
             | _ ->
                 createVarBound (MinusInf, PlusInf)
-
         let fromNeg =
             match neg with
             | Bottom -> Bottom
@@ -119,20 +127,7 @@ let refineMulLeft (target:VariableBound) (b2:VariableBound) : VariableBound =
                 preimageByPos target za zb |> minusInterval
             | _ ->
                 createVarBound (MinusInf, PlusInf)
-
         joinIntervals fromNeg fromPos
-
-let enforceNonZero (vb:VariableBound) : VariableBound =
-    match vb with
-    | Bottom -> Bottom
-    | Interval(l,u) ->
-        // se è esattamente 0 -> impossibile
-        if l = Finite 0 && u = Finite 0 then Bottom
-        // se parte da 0, alza a 1
-        elif l = Finite 0 then createVarBound (Finite 1, u)
-        // se finisce a 0, abbassa a -1
-        elif u = Finite 0 then createVarBound (l, Finite -1)
-        else vb
 
 let refineDivNumerator (target:VariableBound) (den:VariableBound) : VariableBound =
     match den with
@@ -152,14 +147,12 @@ let rec refineExpr (state:State) (expr:Expr) (target:VariableBound) (trace:Map<E
     | Int _ -> state
     | InputInt _ -> state
     | Var x -> refineVar state x target
-
     | Minus e ->
         let negTarget =
             match target with
             | Bottom -> Bottom
             | Interval(l,u) -> createVarBound(negateBound u, negateBound l)
         refineExpr state e negTarget trace
-
     | Add(e1,e2) ->
         let b1 = boundOf trace e1
         let b2 = boundOf trace e2
@@ -168,7 +161,6 @@ let rec refineExpr (state:State) (expr:Expr) (target:VariableBound) (trace:Map<E
         state
         |> fun s -> refineExpr s e1 t1 trace
         |> fun s -> refineExpr s e2 t2 trace
-
     | Sub(e1,e2) ->
         let b1 = boundOf trace e1
         let b2 = boundOf trace e2

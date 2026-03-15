@@ -108,12 +108,6 @@ let transfer (nodeId:NodeId) (lbl:EdgeLabel) (sIn:State) : State =
         | GuardWhile (c, takeTrue) ->
             let sTrue  = assumeCond (sIn, c)
             let sFalse = assumeCond (sIn, Neg c)
-
-            match sTrue, sFalse with
-            | _, BottomState ->
-                warnings <- warnings |> Set.add ("possibile loop infinita nel while node: "+string nodeId)
-            | _ -> ()
-
             if takeTrue then sTrue else sFalse
             
 

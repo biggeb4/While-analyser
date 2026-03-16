@@ -131,12 +131,14 @@ let analyseFixpoint (cfg:CFG) (entryState:State) : Map<NodeId, State> =
         | Some outs ->
             for (lbl, succ) in outs do
                 let sOut = transfer n lbl sN
+                if warnings.Contains ("divisione per zero") then
+                    inState <- inState |> Map.add succ BottomState
+                else
+                    let oldSucc = inState |> Map.tryFind succ |> Option.defaultValue BottomState
+                    let joined = lubState oldSucc sOut
 
-                let oldSucc = inState |> Map.tryFind succ |> Option.defaultValue BottomState
-                let joined = lubState oldSucc sOut
-
-                if not (leqState joined oldSucc) then
-                    inState <- inState |> Map.add succ joined
-                    if inQueue.Add succ then q.Enqueue succ
+                    if not (leqState joined oldSucc) then
+                        inState <- inState |> Map.add succ joined
+                        if inQueue.Add succ then q.Enqueue succ
 
     inState

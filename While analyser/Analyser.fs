@@ -98,7 +98,7 @@ let transfer (nodeId:NodeId) (lbl:EdgeLabel) (sIn:State) : State =
 
             match sTrue, sFalse with
             | BottomState, _ ->
-                warnings <- warnings |> Set.add ("guardia sempre vera nel if node: "+string nodeId)
+                warnings <- warnings |> Set.add ("guardia sempre falsa nel if node: "+string nodeId)
             | _, BottomState ->
                 warnings <- warnings |> Set.add ("guardia sempre vera nel if node: "+string nodeId)
             | _ -> ()

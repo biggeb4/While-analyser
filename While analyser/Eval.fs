@@ -199,7 +199,8 @@ let divIntervals i1 i2 =
             if l2 = Finite 0 && u2 = Finite 0 then
                 warnings <- warnings |> Set.add "divisione per zero"
                 Bottom
-            elif containsZero i2 then
+            elif (containsZero i2) then
+
                 warnings <- warnings |> Set.add "potrebbe dividere per zero"
                 let parts =
                     [ if l2 < Finite 0 then yield (l2, Finite -1)

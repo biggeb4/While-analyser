@@ -65,8 +65,6 @@ type Cond =
 type Stmt =
     | Skip
     | Assign of string * Expr
-    | MaxBound of Bound
-    | MinBound of Bound
     | Seq of Stmt list
     | If of Cond * Stmt * Stmt
     | While of Cond * Stmt
@@ -220,12 +218,6 @@ let stmt, stmtRef = createParserForwardedToRef<Stmt, unit>()
 
 let pSkip : Parser<Stmt, unit> =
     keyword "skip" >>% Skip
-    
-let pMaxBound : Parser<Stmt, unit> =
-    pipe2 (keyword "maxBound" >>. str_ws ":=") pBound (fun x b -> MaxBound(b))
-
-let pMinBound : Parser<Stmt, unit> =
-    pipe2 (keyword "minBound" >>. str_ws ":=") pBound (fun x b -> MinBound(b))
 
 let pAssign : Parser<Stmt, unit> =
     pipe2 (pIdent .>> str_ws ":=") expr (fun x e -> Assign(x, e))
@@ -244,7 +236,7 @@ let pWhile : Parser<Stmt, unit> =
 let pAssert : Parser<Stmt, unit> =
     (keyword "assert" >>. cond) |>> Assert
 
-do stmtRef.Value <- choice [ pSkip;  pIf; pWhile; pAssert; pMaxBound; pMinBound; pAssign;]
+do stmtRef.Value <- choice [ pSkip;  pIf; pWhile; pAssert; pAssign;]
 
 let pProgram : Parser<Stmt, unit> =
     ws >>. pSeq .>> ws .>> eof

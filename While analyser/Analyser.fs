@@ -1,84 +1,83 @@
 ﻿module Analyser
+
 open CFGBuilder
 open Parser
 open Eval
-open Refine
 
-let rec analyseStartingState (cfg: CFG,id:NodeId,state:State) : State =
-    let currentNode = Map.tryFind id cfg.Edges
-    match currentNode with
-    | Some edges ->
-        match edges with
-        | [(lbl, nextNode)] ->
-            match lbl with
-            | Epsilon -> analyseStartingState (cfg, nextNode,state)
-            | EdgeLabel.MaxBound b ->
-                maxBound <- b
-                if maxBound < minBound then
-                    printfn "Errore, il massimo è minore del minimo"
-                analyseStartingState (cfg, nextNode,state)
-            | EdgeLabel.MinBound b ->
-                minBound <- b
-                if maxBound < minBound then
-                    printfn "Errore, il massimo è minore del minimo"
-                analyseStartingState (cfg, nextNode,state)
-            | EdgeLabel.Assign (var, expr) ->
-                match expr,state with
-                | _ , BottomState -> 
-                    printfn "Bottom state iniziale"
-                    state
-                | InputInt (lower, upper),Vars vars ->
-                    let newState = Vars (vars |> Map.add var (createVarBound(lower, upper)))
-                    analyseStartingState (cfg, nextNode,newState)
-                | _ -> 
-                    printfn "Errore Lo stato iniziale riceve solo intervalli"
-                    state
-            | _ -> 
-                    printfn "Errore Lo stato iniziale riceve solo Dominio e intervalli delle variabili"
-                    state
-        | [] -> 
-            printfn "Errore, nodo senza archi nello stato iniziale"
-            state
-        | _ ->
-            printfn "Errore: branching nello stato iniziale (atteso 1 arco uscente)"
-            state
-    | None -> 
-            state
+type AnalysisConfig =
+    { useWidening : bool
+      widenAfter : int
+      useNarrowing : bool
+      narrowingSteps : int }
 
-let leqBound a b =
-    match a,b with
-    | Bottom, _ -> true
-    | _, Bottom -> false
-    | Interval(l1,u1), Interval(l2,u2) -> l2 <= l1 && u1 <= u2
-
-let leqState s1 s2 =
-    match s1,s2 with
+let leqState (dom:Domain<'A>) s1 s2 =
+    match s1, s2 with
     | BottomState, _ -> true
     | _, BottomState -> false
     | Vars m1, Vars m2 ->
         m1
         |> Map.forall (fun k v1 ->
-            let v2 = m2 |> Map.tryFind k |> Option.defaultValue Bottom
-            leqBound v1 v2)
+            let v2 = m2 |> Map.tryFind k |> Option.defaultValue dom.bottom
+            dom.leq v1 v2)
 
-let lubState s1 s2 =
-    match s1,s2 with
+let lubState (dom:Domain<'A>) s1 s2 =
+    match s1, s2 with
     | BottomState, s
     | s, BottomState -> s
     | Vars m1, Vars m2 ->
         let keys =
-            Seq.append (m1 |> Map.toSeq |> Seq.map fst) (m2 |> Map.toSeq |> Seq.map fst)
+            Seq.append (Map.keys m1) (Map.keys m2)
             |> Set.ofSeq
+
         let merged =
             keys
             |> Seq.fold (fun acc k ->
-                let v1 = m1 |> Map.tryFind k |> Option.defaultValue Bottom
-                let v2 = m2 |> Map.tryFind k |> Option.defaultValue Bottom
-                acc |> Map.add k (joinIntervals v1 v2)
+                let v1 = m1 |> Map.tryFind k |> Option.defaultValue dom.bottom
+                let v2 = m2 |> Map.tryFind k |> Option.defaultValue dom.bottom
+                acc |> Map.add k (dom.join v1 v2)
             ) Map.empty
+
         Vars merged
 
-let transfer (nodeId:NodeId) (lbl:EdgeLabel) (sIn:State) : State =
+let widenState (dom:Domain<'A>) s1 s2 =
+    match s1, s2 with
+    | BottomState, s
+    | s, BottomState -> s
+    | Vars m1, Vars m2 ->
+        let keys =
+            Seq.append (Map.keys m1) (Map.keys m2)
+            |> Set.ofSeq
+
+        let merged =
+            keys
+            |> Seq.fold (fun acc k ->
+                let v1 = m1 |> Map.tryFind k |> Option.defaultValue dom.bottom
+                let v2 = m2 |> Map.tryFind k |> Option.defaultValue dom.bottom
+                acc |> Map.add k (dom.widen v1 v2)
+            ) Map.empty
+
+        Vars merged
+
+let narrowState (dom:Domain<'A>) s1 s2 =
+    match s1, s2 with
+    | BottomState, _
+    | _, BottomState -> BottomState
+    | Vars m1, Vars m2 ->
+        let keys =
+            Seq.append (Map.keys m1) (Map.keys m2)
+            |> Set.ofSeq
+
+        let merged =
+            keys
+            |> Seq.fold (fun acc k ->
+                let v1 = m1 |> Map.tryFind k |> Option.defaultValue dom.bottom
+                let v2 = m2 |> Map.tryFind k |> Option.defaultValue dom.bottom
+                acc |> Map.add k (dom.narrow v1 v2)
+            ) Map.empty
+
+        Vars merged
+
+let transfer (dom:Domain<'A>) lbl sIn =
     match sIn with
     | BottomState -> BottomState
     | Vars vars ->
@@ -86,37 +85,34 @@ let transfer (nodeId:NodeId) (lbl:EdgeLabel) (sIn:State) : State =
         | Epsilon -> sIn
 
         | EdgeLabel.Assign (x, e) ->
-            let b = (evaluateExpr sIn e).bound
+            let b = (evaluateExpr dom sIn e).bound
             Vars (vars |> Map.add x b)
 
         | EdgeLabel.Assert c ->
-            assumeCond (sIn, c)
+            match dom.refine with
+            | Some refine -> refine (sIn, c)
+            | None -> sIn
 
         | GuardIf (c, takeTrue) ->
-            let sTrue  = assumeCond (sIn, c)
-            let sFalse = assumeCond (sIn, Neg c)
+            let cc = if takeTrue then c else Neg c
+            match dom.refine with
+            | Some refine -> refine (sIn, cc)
+            | None -> sIn
 
-            match sTrue, sFalse with
-            | BottomState, _ ->
-                warnings <- warnings |> Set.add ("guardia sempre falsa nel if node: "+string nodeId)
-            | _, BottomState ->
-                warnings <- warnings |> Set.add ("guardia sempre vera nel if node: "+string nodeId)
-            | _ -> ()
-
-            if takeTrue then sTrue else sFalse
-            
         | GuardWhile (c, takeTrue) ->
-            let sTrue  = assumeCond (sIn, c)
-            let sFalse = assumeCond (sIn, Neg c)
-            if takeTrue then sTrue else sFalse
-            
+            let cc = if takeTrue then c else Neg c
+            match dom.refine with
+            | Some refine -> refine (sIn, cc)
+            | None -> sIn
 
-let analyseFixpoint (cfg:CFG) (entryState:State) : Map<NodeId, State> =
-    let mutable inState : Map<NodeId, State> =
-        Map.empty |> Map.add cfg.Entry entryState
+        | _ -> sIn
+
+let private runFixpointPhase dom cfg entryState combine initialState =
+    let mutable inState = initialState
 
     let q = System.Collections.Generic.Queue<NodeId>()
     let inQueue = System.Collections.Generic.HashSet<NodeId>()
+
     q.Enqueue cfg.Entry
     inQueue.Add cfg.Entry |> ignore
 
@@ -124,21 +120,70 @@ let analyseFixpoint (cfg:CFG) (entryState:State) : Map<NodeId, State> =
         let n = q.Dequeue()
         inQueue.Remove n |> ignore
 
-        let sN = inState |> Map.tryFind n |> Option.defaultValue BottomState
+        let sN =
+            if n = cfg.Entry then entryState
+            else inState |> Map.tryFind n |> Option.defaultValue BottomState
 
         match Map.tryFind n cfg.Edges with
         | None -> ()
         | Some outs ->
             for (lbl, succ) in outs do
-                let sOut = transfer n lbl sN
-                if warnings.Contains ("divisione per zero") then
-                    inState <- inState |> Map.add succ BottomState
-                else
-                    let oldSucc = inState |> Map.tryFind succ |> Option.defaultValue BottomState
-                    let joined = lubState oldSucc sOut
+                let sOut = transfer dom lbl sN
+                let oldSucc = inState |> Map.tryFind succ |> Option.defaultValue BottomState
+                let combined = combine succ oldSucc sOut
 
-                    if not (leqState joined oldSucc) then
-                        inState <- inState |> Map.add succ joined
-                        if inQueue.Add succ then q.Enqueue succ
+                if not (leqState dom combined oldSucc) then
+                    inState <- inState |> Map.add succ combined
+                    if inQueue.Add succ then q.Enqueue succ
 
     inState
+
+let runWideningPhase dom cfg entryState config =
+    let updateCount = System.Collections.Generic.Dictionary<NodeId,int>()
+
+    let combine succ oldSucc sOut =
+        let count =
+            match updateCount.TryGetValue succ with
+            | true, c -> c
+            | false, _ -> 0
+
+        let res =
+            if config.useWidening
+               && Set.contains succ cfg.WhileHeaders
+               && count >= config.widenAfter then
+                widenState dom oldSucc sOut
+            else
+                lubState dom oldSucc sOut
+
+        if not (leqState dom res oldSucc) then
+            updateCount.[succ] <- count + 1
+
+        res
+
+    runFixpointPhase dom cfg entryState combine (Map.empty |> Map.add cfg.Entry entryState)
+
+let runNarrowingPhase dom cfg entryState baseState steps =
+    let combine succ oldSucc sOut =
+        if Set.contains succ cfg.WhileHeaders then
+            narrowState dom oldSucc sOut
+        else
+            lubState dom oldSucc sOut
+
+    let mutable st = baseState
+    for _ in 1 .. steps do
+        st <- runFixpointPhase dom cfg entryState combine st
+    st
+
+let analyseFixpoint
+    (dom:Domain<'A>)
+    (cfg:CFG)
+    (entryState:State<'A>)
+    (config:AnalysisConfig)
+    : Map<NodeId, State<'A>> =
+
+    let widened = runWideningPhase dom cfg entryState config
+
+    if config.useNarrowing && config.narrowingSteps > 0 then
+        runNarrowingPhase dom cfg entryState widened config.narrowingSteps
+    else
+        widened

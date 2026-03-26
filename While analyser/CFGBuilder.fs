@@ -15,11 +15,12 @@ type EdgeLabel =
 type CFG =
     { Entry: NodeId
       Exit: NodeId
-      Edges: Map<NodeId, (EdgeLabel * NodeId) list> }
+      Edges: Map<NodeId, (EdgeLabel * NodeId) list> 
+      WhileHeaders : Set<NodeId>}
 
 module internal Cfg =
     let empty =
-        { Entry = 0; Exit = 0; Edges = Map.empty }
+        { Entry = 0; Exit = 0; Edges = Map.empty; WhileHeaders = Set.empty}
 
     let addEdge (fromN: NodeId) (lbl: EdgeLabel) (toN: NodeId) (g: CFG) =
         let out = g.Edges |> Map.tryFind fromN |> Option.defaultValue []
@@ -32,6 +33,9 @@ module internal Cfg =
                 let cur = acc |> Map.tryFind k |> Option.defaultValue []
                 acc |> Map.add k (cur @ v))
         { g1 with Edges = edges }
+
+    let addWhileHeader (n: NodeId) (g: CFG) =
+        { g with WhileHeaders = g.WhileHeaders |> Set.add n }
 
 type Fresh() =
     let mutable nextId = 0
@@ -49,18 +53,6 @@ let buildCfg (fresh: Fresh) (stmt: Stmt) : CFG =
             Cfg.empty
             |> fun g -> { g with Entry = n1; Exit = n2 }
             |> Cfg.addEdge n1 Epsilon n2
-        | Stmt.MaxBound b ->
-            let n1 = fresh.New()
-            let n2 = fresh.New()
-            Cfg.empty
-            |> fun g -> { g with Entry = n1; Exit = n2 }
-            |> Cfg.addEdge n1 (MaxBound(b)) n2
-        | Stmt.MinBound b ->
-            let n1 = fresh.New()
-            let n2 = fresh.New()
-            Cfg.empty
-            |> fun g -> { g with Entry = n1; Exit = n2 }
-            |> Cfg.addEdge n1 (MinBound(b)) n2
         | Stmt.Assign (x, e) ->
             let n1 = fresh.New()
             let n2 = fresh.New()
@@ -107,6 +99,7 @@ let buildCfg (fresh: Fresh) (stmt: Stmt) : CFG =
             |> Cfg.addEdge test (GuardWhile (c, true)) gBody.Entry
             |> Cfg.addEdge test (GuardWhile (c, false)) exit
             |> Cfg.addEdge gBody.Exit Epsilon test
+            |> Cfg.addWhileHeader test
     build stmt
 
 let boundToString b =

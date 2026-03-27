@@ -89,21 +89,24 @@ let transfer (dom:Domain<'A>) lbl sIn =
             Vars (vars |> Map.add x b)
 
         | EdgeLabel.Assert c ->
+            let s1 = dom.assume (sIn, c)
             match dom.refine with
-            | Some refine -> refine (sIn, c)
-            | None -> sIn
+            | Some refine -> refine (s1, c)
+            | None -> s1
 
         | GuardIf (c, takeTrue) ->
             let cc = if takeTrue then c else Neg c
+            let s1 = dom.assume (sIn, cc)
             match dom.refine with
-            | Some refine -> refine (sIn, cc)
-            | None -> sIn
+            | Some refine -> refine (s1, cc)
+            | None -> s1
 
         | GuardWhile (c, takeTrue) ->
             let cc = if takeTrue then c else Neg c
+            let s1 = dom.assume (sIn, cc)
             match dom.refine with
-            | Some refine -> refine (sIn, cc)
-            | None -> sIn
+            | Some refine -> refine (s1, cc)
+            | None -> s1
 
         | _ -> sIn
 
@@ -159,7 +162,6 @@ let runWideningPhase dom cfg entryState config =
             updateCount.[succ] <- count + 1
 
         res
-
     runFixpointPhase dom cfg entryState combine (Map.empty |> Map.add cfg.Entry entryState)
 
 let runNarrowingPhase dom cfg entryState baseState steps =
@@ -180,8 +182,9 @@ let analyseFixpoint
     (entryState:State<'A>)
     (config:AnalysisConfig)
     : Map<NodeId, State<'A>> =
-
-    let widened = runWideningPhase dom cfg entryState config
+    
+    let domNoRefine = { dom with refine = None }
+    let widened = runWideningPhase domNoRefine cfg entryState config
 
     if config.useNarrowing && config.narrowingSteps > 0 then
         runNarrowingPhase dom cfg entryState widened config.narrowingSteps

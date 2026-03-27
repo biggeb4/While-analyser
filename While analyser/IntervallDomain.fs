@@ -2,6 +2,7 @@ module IntervalDomain
 
 open Parser
 open Eval
+open RefinerCommon
 
 type VariableBound =
     | Interval of Bound * Bound
@@ -40,10 +41,25 @@ let containsZero = function
 
 let makeCreateVarBound (minBound: Bound) (maxBound: Bound) =
     fun (lower: Bound, upper: Bound) ->
-        let l = boundMax minBound lower
-        let u = boundMin maxBound upper
-        if boundLt u l then Bottom
-        else Interval (l, u)
+        if boundLt upper lower then Bottom
+        else
+            match minBound, maxBound with
+            | MinusInf, PlusInf ->
+                Interval (lower, upper)
+            | Finite m, Finite n ->
+                match lower, upper with
+                | Finite l, Finite u when m <= l && u <= n ->
+                    Interval (Finite l, Finite u)
+                | _, Finite u when m <= u && u <= n ->
+                    Interval (MinusInf, Finite u)
+                | Finite l, _ when m <= l && l <= n ->
+                    Interval (Finite l, PlusInf)
+                | _, _ when boundLe lower (Finite m) && boundLe (Finite n) upper ->
+                    Interval (MinusInf, PlusInf)
+                | _ ->
+                    Interval (MinusInf, PlusInf)
+            | _ ->
+                Interval (lower, upper)
 
 // ===================================
 // Costruttore del dominio parametrico Int_{m,n}
@@ -287,5 +303,12 @@ let makeIntervalDomain (minBound: Bound) (maxBound: Bound) : Domain<VariableBoun
 
       constInt = fun n -> createVarBound (Finite n, Finite n)
       inputInt = fun (l, u) -> createVarBound (l, u)
-
+      assume = (fun _ -> failwith "interval assume not initialized")
       refine = None }
+
+let assume = makeIntervalAssume dom createVarBound
+let refine = makeIntervalRefiner dom createVarBound
+
+{ dom with
+    assume = assume
+    refine = Some refine }

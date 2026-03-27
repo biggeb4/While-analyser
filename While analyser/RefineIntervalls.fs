@@ -3,6 +3,111 @@
 open Parser
 open Eval
 open IntervalDomain
+open RefinerCommon
+
+let makeIntervalAssume
+    (dom: Domain<VariableBound>)
+    (createVarBound: Bound * Bound -> VariableBound)
+    : (State<VariableBound> * Cond -> State<VariableBound>) =
+
+    let intersect a b =
+        match a, b with
+        | Bottom, _
+        | _, Bottom -> Bottom
+        | _ -> dom.meet a b
+
+    let getLU = function
+        | Bottom -> (PlusInf, MinusInf)
+        | Interval (l, u) -> (l, u)
+
+    let predBound = function
+        | Finite k -> Finite (k - 1)
+        | PlusInf -> PlusInf
+        | MinusInf -> MinusInf
+
+    let succBound = function
+        | Finite k -> Finite (k + 1)
+        | PlusInf -> PlusInf
+        | MinusInf -> MinusInf
+
+    let assumeAtomInterval (state: State<VariableBound>) (cond: Cond) =
+        match state with
+        | BottomState -> BottomState
+        | _ ->
+            match cond with
+            | Equi (e1, e2) ->
+                let b1 = (evaluateExpr dom state e1).bound
+                let b2 = (evaluateExpr dom state e2).bound
+                let common = intersect b1 b2
+                match common with
+                | Bottom -> BottomState
+                | _ ->
+                    match e1, e2 with
+                    | Var x, _ ->
+                        refineVarMeet dom state x common
+                    | _, Var y ->
+                        refineVarMeet dom state y common
+                    | _ ->
+                        state
+
+            | MinEqui (e1, e2)
+            | MagEqui (e2, e1) ->
+                let b1 = (evaluateExpr dom state e1).bound
+                let b2 = (evaluateExpr dom state e2).bound
+                let (l1, _) = getLU b1
+                let (_, u2) = getLU b2
+                let t1 = createVarBound (MinusInf, u2)
+                let t2 = createVarBound (l1, PlusInf)
+
+                match e1, e2 with
+                | Var x, Var y ->
+                    state
+                    |> fun s -> refineVarMeet dom s x t1
+                    |> fun s -> refineVarMeet dom s y t2
+                | Var x, _ ->
+                    refineVarMeet dom state x t1
+                | _, Var y ->
+                    refineVarMeet dom state y t2
+                | _ ->
+                    state
+
+            | Min (e1, e2)
+            | Mag (e2, e1) ->
+                let b1 = (evaluateExpr dom state e1).bound
+                let b2 = (evaluateExpr dom state e2).bound
+                let (l1, _) = getLU b1
+                let (_, u2) = getLU b2
+                let t1 = createVarBound (MinusInf, predBound u2)
+                let t2 = createVarBound (succBound l1, PlusInf)
+
+                match e1, e2 with
+                | Var x, Var y ->
+                    state
+                    |> fun s -> refineVarMeet dom s x t1
+                    |> fun s -> refineVarMeet dom s y t2
+                | Var x, _ ->
+                    refineVarMeet dom state x t1
+                | _, Var y ->
+                    refineVarMeet dom state y t2
+                | _ ->
+                    state
+
+            | Diff (e1, e2) ->
+                let b1 = (evaluateExpr dom state e1).bound
+                let b2 = (evaluateExpr dom state e2).bound
+                match b1, b2 with
+                | Interval (Finite a, Finite b), Interval (Finite c, Finite d)
+                    when a = b && c = d && a = c ->
+                    BottomState
+                | _ ->
+                    state
+
+            | _ ->
+                state
+
+    fun (state, cond) ->
+        condWith (joinStates dom) assumeAtomInterval (state, cond)
+
 
 let makeIntervalRefiner
     (dom: Domain<VariableBound>)
@@ -11,18 +116,9 @@ let makeIntervalRefiner
 
     let intersect a b =
         match a, b with
-        | Bottom, _ | _, Bottom -> Bottom
+        | Bottom, _
+        | _, Bottom -> Bottom
         | _ -> dom.meet a b
-
-    let refineVar (state: State<VariableBound>) (x: string) (target: VariableBound) =
-        match state with
-        | BottomState -> BottomState
-        | Vars v ->
-            let old = v |> Map.tryFind x |> Option.defaultValue dom.top
-            let neu = intersect old target
-            match neu with
-            | Bottom -> BottomState
-            | _ -> Vars (v |> Map.add x neu)
 
     let boundOf (trace: Map<Expr, VariableBound>) (e: Expr) =
         trace |> Map.tryFind e |> Option.defaultValue dom.top
@@ -63,15 +159,21 @@ let makeIntervalRefiner
         | Interval (l, u) ->
             let neg =
                 if boundLe l (Finite -1) then
-                    let uu = if boundLe u (Finite -1) then u else Finite -1
+                    let uu =
+                        if boundLe u (Finite -1) then u
+                        else Finite -1
                     createVarBound (l, uu)
-                else Bottom
+                else
+                    Bottom
 
             let pos =
                 if boundLe (Finite 1) u then
-                    let ll = if boundLe (Finite 1) l then l else Finite 1
+                    let ll =
+                        if boundLe (Finite 1) l then l
+                        else Finite 1
                     createVarBound (ll, u)
-                else Bottom
+                else
+                    Bottom
 
             neg, pos
 
@@ -90,9 +192,9 @@ let makeIntervalRefiner
 
     let refineMulLeft (target: VariableBound) (b2: VariableBound) : VariableBound =
         match target, b2 with
-        | Bottom, _ | _, Bottom -> Bottom
+        | Bottom, _
+        | _, Bottom -> Bottom
 
-        // Se posso scegliere y = 0 e 0 è ammesso dal target, qualunque x è possibile
         | _, _ when containsZero b2 && containsZero target ->
             createVarBound (MinusInf, PlusInf)
 
@@ -133,39 +235,6 @@ let makeIntervalRefiner
                     else dom.mul target d
                 dom.join (partMul neg) (partMul pos)
 
-    let lubState s1 s2 =
-        match s1, s2 with
-        | BottomState, s
-        | s, BottomState -> s
-        | Vars m1, Vars m2 ->
-            let keys =
-                Seq.append (m1 |> Map.toSeq |> Seq.map fst) (m2 |> Map.toSeq |> Seq.map fst)
-                |> Set.ofSeq
-
-            let merged =
-                keys
-                |> Seq.fold (fun acc k ->
-                    let v1 = m1 |> Map.tryFind k |> Option.defaultValue dom.bottom
-                    let v2 = m2 |> Map.tryFind k |> Option.defaultValue dom.bottom
-                    acc |> Map.add k (dom.join v1 v2)
-                ) Map.empty
-
-            Vars merged
-
-    let rec negateCond c =
-        match c with
-        | True -> False
-        | False -> True
-        | Neg x -> x
-        | And (a, b) -> Or (negateCond a, negateCond b)
-        | Or (a, b) -> And (negateCond a, negateCond b)
-        | Equi (a, b) -> Diff (a, b)
-        | Diff (a, b) -> Equi (a, b)
-        | Min (a, b) -> MagEqui (a, b)
-        | MinEqui (a, b) -> Mag (a, b)
-        | Mag (a, b) -> MinEqui (a, b)
-        | MagEqui (a, b) -> Min (a, b)
-
     let getLU = function
         | Bottom -> (PlusInf, MinusInf)
         | Interval (l, u) -> (l, u)
@@ -195,7 +264,7 @@ let makeIntervalRefiner
         | InputInt _ -> state
 
         | Var x ->
-            refineVar state x target
+            refineVarMeet dom state x target
 
         | Minus e ->
             let negTarget =
@@ -240,25 +309,9 @@ let makeIntervalRefiner
             |> fun s -> refineExpr s e1 t1 trace
             |> fun s -> refineExpr s e2 t2 trace
 
-    let rec assumeCondInterval (state: State<VariableBound>, cond: Cond) : State<VariableBound> =
-        match cond, state with
-        | _, BottomState -> BottomState
-        | True, _ -> state
-        | False, _ -> BottomState
-
-        | Neg c, _ ->
-            assumeCondInterval (state, negateCond c)
-
-        | And (c1, c2), _ ->
-            let s1 = assumeCondInterval (state, c1)
-            assumeCondInterval (s1, c2)
-
-        | Or (c1, c2), _ ->
-            let s1 = assumeCondInterval (state, c1)
-            let s2 = assumeCondInterval (state, c2)
-            lubState s1 s2
-
-        | Equi (e1, e2), _ ->
+    let refineAtomInterval (state: State<VariableBound>) (cond: Cond) =
+        match cond with
+        | Equi (e1, e2) ->
             let ev1 = evaluateExpr dom state e1
             let ev2 = evaluateExpr dom state e2
             let trace = mergeMaps ev1.steps ev2.steps
@@ -266,7 +319,8 @@ let makeIntervalRefiner
             let s1 = refineExpr state e1 common trace
             refineExpr s1 e2 common trace
 
-        | MinEqui (e1, e2), _ ->
+        | MinEqui (e1, e2)
+        | MagEqui (e2, e1) ->
             let ev1 = evaluateExpr dom state e1
             let ev2 = evaluateExpr dom state e2
             let trace = mergeMaps ev1.steps ev2.steps
@@ -278,7 +332,8 @@ let makeIntervalRefiner
             |> fun s -> refineExpr s e1 t1 trace
             |> fun s -> refineExpr s e2 t2 trace
 
-        | Min (e1, e2), _ ->
+        | Min (e1, e2)
+        | Mag (e2, e1) ->
             let ev1 = evaluateExpr dom state e1
             let ev2 = evaluateExpr dom state e2
             let trace = mergeMaps ev1.steps ev2.steps
@@ -290,17 +345,15 @@ let makeIntervalRefiner
             |> fun s -> refineExpr s e1 t1 trace
             |> fun s -> refineExpr s e2 t2 trace
 
-        | MagEqui (e1, e2), _ ->
-            assumeCondInterval (state, MinEqui (e2, e1))
-
-        | Mag (e1, e2), _ ->
-            assumeCondInterval (state, Min (e2, e1))
-
-        | Diff (e1, e2), _ ->
+        | Diff (e1, e2) ->
             let ev1 = evaluateExpr dom state e1
             let ev2 = evaluateExpr dom state e2
             match isSingleton ev1.bound, isSingleton ev2.bound with
             | Some a, Some b when a = b -> BottomState
             | _ -> state
 
-    assumeCondInterval
+        | _ ->
+            state
+
+    fun (state, cond) ->
+        condWith (joinStates dom) refineAtomInterval (state, cond)

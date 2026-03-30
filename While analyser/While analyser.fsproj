@@ -11,9 +11,9 @@
     <Compile Include="CFGBuilder.fs" />
     <Compile Include="Eval.fs" />
     <Compile Include="CommonRefiner.fs" />
-    <Compile Include="IntervallDomain.fs" />
-    <Compile Include="RefineIntervalls.fs" />
+    <Compile Include="IntervalDomain.fs" />
     <Compile Include="ConstantPropagationDomain.fs" />
+    <Compile Include="SignDomain.fs" />
     <Compile Include="Analyser.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>

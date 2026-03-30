@@ -68,12 +68,9 @@ let mulConst a b =
     match a, b with
     | Bottom, _
     | _, Bottom -> Bottom
-
     | Const 0, _
     | _, Const 0 -> Const 0
-
     | Const x, Const y -> Const (x * y)
-
     | _ -> Top
 
 let divConst a b =
@@ -197,6 +194,7 @@ let makeConstantPropagationRefiner (dom: Domain<ConstantValue>) : (State<Constan
 
                     match b2 with
                     | Const 0 ->
+                        warnings<-warnings.Add ("Divisione per zero")
                         BottomState
                     | Const 1 ->
                         refineExprToConst state e1 (Const k) trace
@@ -205,7 +203,7 @@ let makeConstantPropagationRefiner (dom: Domain<ConstantValue>) : (State<Constan
                     | _ ->
                         state
 
-    let assumeAtomConst (state: State<ConstantValue>) (cond: Cond) =
+    let refineAtomConst (state: State<ConstantValue>) (cond: Cond) =
         match cond with
         | Equi (e1, e2) ->
             let ev1 = evaluateExpr dom state e1
@@ -280,7 +278,7 @@ let makeConstantPropagationRefiner (dom: Domain<ConstantValue>) : (State<Constan
             state
 
     fun (state, cond) ->
-        assumeCondWith (joinStates dom) assumeAtomConst (state, cond)
+        condWith (joinStates dom) refineAtomConst (state, cond)
 
 // ===================================
 // Dominio
@@ -306,8 +304,9 @@ let makeConstantPropagationDomain () : Domain<ConstantValue> =
 
           constInt = constInt
           inputInt = inputInt
-
-          refine = None }
-
+          
+          AssumeAndRefine = (fun _ -> failwith "uninitialized assume") }
     let refiner = makeConstantPropagationRefiner dom
-    { dom with refine = Some refiner }
+
+    { dom with
+        AssumeAndRefine = refiner }

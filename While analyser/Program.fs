@@ -6,12 +6,13 @@ open CFGBuilder
 open Analyser
 open Eval
 open IntervalDomain
-open RefineIntervals
 open ConstantPropagationDomain
+open SignDomain
 
 type ImplementedDomain =
     | Intervals
     | ConstantPropagation
+    | Sign
 
 type PreparedAnalysis<'A> =
     { Name : string
@@ -19,6 +20,8 @@ type PreparedAnalysis<'A> =
       Domain : Domain<'A>
       InitialState : State<'A>
       Config : AnalysisConfig }
+
+type PreparedRun = string -> int
 
 let tryReadProgram (path: string) : Result<string, string> =
     try
@@ -87,7 +90,8 @@ let printState (state: State<'A>) =
 let chooseDomain () =
     let implemented =
         [ (1, "Intervals Domain", Intervals)
-          (2, "Constant Propagation Domain", ConstantPropagation) ]
+          (2, "Constant Propagation Domain", ConstantPropagation)
+          (3, "Sign Domain", Sign) ]
 
     printfn "Seleziona il dominio usando il numero:"
     for (i, name, _) in implemented do
@@ -155,107 +159,108 @@ let askIntervalDomainParameters () =
         let n = askBound "Inserisci n (upper bound del dominio, es. +inf, 10, 100): "
         m, n
 
-let askInitialIntervalState (createVarBound: Bound * Bound -> VariableBound) : State<VariableBound> =
+let askInitialStateGeneric<'A>
+    (title: string)
+    (helpLines: string list)
+    (askValue: unit -> 'A option)
+    : State<'A> =
+
     printfn ""
-    printfn "Inserimento stato iniziale per il dominio intervalli."
-    printfn "Le variabili NON inserite saranno trattate come Top quando lette nelle espressioni."
+    printfn "%s" title
+    for line in helpLines do
+        printfn "%s" line
 
     let count = askInt "Quante variabili vuoi inizializzare? "
 
-    let rec loop i (acc: Map<string, VariableBound>) =
+    let rec loop i (acc: Map<string, 'A>) =
         if i > count then
             Vars acc
         else
             printfn ""
             printfn "Variabile %d di %d" i count
             let name = askNonEmptyLine "Nome variabile: "
-            let lower = askBound "Lower bound (es. -inf, 0, 5): "
-            let upper = askBound "Upper bound (es. +inf, 10, 20): "
-            let vb = createVarBound (lower, upper)
-            match vb with
-            | VariableBound.Bottom ->
-                printfn "Intervallo non valido, reinserisci questa variabile."
+
+            match askValue() with
+            | Some value ->
+                loop (i + 1) (acc |> Map.add name value)
+            | None ->
+                printfn "Valore non valido, reinserisci questa variabile."
                 loop i acc
-            | _ ->
-                loop (i + 1) (acc |> Map.add name vb)
 
     loop 1 Map.empty
+
+let askInitialIntervalState (createVarBound: Bound * Bound -> VariableBound) : State<VariableBound> =
+    let askValue () =
+        let lower = askBound "Lower bound (es. -inf, 0, 5): "
+        let upper = askBound "Upper bound (es. +inf, 10, 20): "
+        match createVarBound (lower, upper) with
+        | VariableBound.Bottom -> None
+        | vb -> Some vb
+
+    askInitialStateGeneric
+        "Inserimento stato iniziale per il dominio intervalli."
+        [ "Le variabili NON inserite saranno trattate come Top quando lette nelle espressioni." ]
+        askValue
 
 let askInitialConstantState () : State<ConstantValue> =
-    printfn ""
-    printfn "Inserimento stato iniziale per il dominio constant propagation."
-    printfn "Per ogni variabile puoi inserire:"
-    printfn "  - un intero (es. 5)"
-    printfn "  - TOP"
-    printfn "Le variabili non inserite saranno trattate come Top quando lette nelle espressioni."
-
-    let count = askInt "Quante variabili vuoi inizializzare? "
-
     let parseConstValue (s: string) =
         let t = s.Trim().ToUpperInvariant()
-        if t = "TOP" then Some Top
+        if t = "TOP" then Some ConstantValue.Top
         else
             match Int32.TryParse t with
-            | true, v -> Some (Const v)
+            | true, v -> Some (ConstantValue.Const v)
             | false, _ -> None
 
-    let rec askConstValue prompt =
-        printf "%s" prompt
+    let askValue () =
+        printf "Valore iniziale (intero oppure TOP): "
         let s = Console.ReadLine()
-        match parseConstValue s with
-        | Some v -> v
-        | None ->
-            printfn "Valore non valido. Inserisci un intero oppure TOP."
-            askConstValue prompt
+        parseConstValue s
 
-    let rec loop i (acc: Map<string, ConstantValue>) =
-        if i > count then
-            Vars acc
-        else
-            printfn ""
-            printfn "Variabile %d di %d" i count
-            let name = askNonEmptyLine "Nome variabile: "
-            let value = askConstValue "Valore iniziale (intero oppure TOP): "
-            loop (i + 1) (acc |> Map.add name value)
+    askInitialStateGeneric
+        "Inserimento stato iniziale per il dominio constant propagation."
+        [ "Per ogni variabile puoi inserire:"
+          "  - un intero (es. 5)"
+          "  - TOP"
+          "Le variabili non inserite saranno trattate come Top quando lette nelle espressioni." ]
+        askValue
 
-    loop 1 Map.empty
+let askInitialSignState () : State<SignValue> =
+    let parseSignValue (s: string) =
+        match s.Trim().ToUpperInvariant() with
+        | "BOTTOM" -> Some SignValue.Bottom
+        | "NEG" -> Some SignValue.Neg
+        | "ZERO" -> Some SignValue.Zero
+        | "POS" -> Some SignValue.Pos
+        | "NONPOS" -> Some SignValue.NonPos
+        | "NONZERO" -> Some SignValue.NonZero
+        | "NONNEG" -> Some SignValue.NonNeg
+        | "TOP" -> Some SignValue.Top
+        | _ -> None
 
-let prepareConstantPropagationAnalysis (config: AnalysisConfig) : PreparedAnalysis<ConstantValue> =
-    let dom = makeConstantPropagationDomain ()
-    let startingState = askInitialConstantState ()
+    let askValue () =
+        printf "Valore iniziale (NEG, ZERO, POS, NONPOS, NONZERO, NONNEG, TOP): "
+        let s = Console.ReadLine()
+        parseSignValue s
 
-    { Name = "Constant Propagation Domain"
-      Info = "Dominio di propagazione delle costanti"
-      Domain = dom
-      InitialState = startingState
+    askInitialStateGeneric
+        "Inserimento stato iniziale per il dominio dei segni."
+        [ "Per ogni variabile puoi inserire uno tra:"
+          "  NEG, ZERO, POS, NONPOS, NONZERO, NONNEG, TOP"
+          "Le variabili non inserite saranno trattate come Top quando lette nelle espressioni." ]
+        askValue
+
+let makePreparedAnalysis
+    (name: string)
+    (info: string)
+    (domain: Domain<'A>)
+    (initialState: State<'A>)
+    (config: AnalysisConfig)
+    : PreparedAnalysis<'A> =
+    { Name = name
+      Info = info
+      Domain = domain
+      InitialState = initialState
       Config = config }
-
-let prepareIntervalAnalysis (config: AnalysisConfig) : Choice<PreparedAnalysis<VariableBound>, PreparedAnalysis<ConstantValue>> =
-    let (minBound, maxBound) = askIntervalDomainParameters ()
-
-    // Fallback automatico: se m > n allora si passa al constant propagation domain
-    if not (boundLe minBound maxBound) then
-        printfn ""
-        printfn "Hai inserito m > n."
-        printfn "Int_{m,n} coincide con il Constant Propagation Domain."
-        let preparedConst = prepareConstantPropagationAnalysis config
-        Choice2Of2 preparedConst
-    else
-        let createVarBound = makeCreateVarBound minBound maxBound
-        let dom0 = makeIntervalDomain minBound maxBound
-        let refiner = makeIntervalRefiner dom0 createVarBound
-        let dom = { dom0 with refine = Some refiner }
-
-        let startingState = askInitialIntervalState createVarBound
-
-        let preparedIntervals =
-            { Name = "Intervals Domain"
-              Info = sprintf "Parametri dominio: [%A, %A]" minBound maxBound
-              Domain = dom
-              InitialState = startingState
-              Config = config }
-
-        Choice1Of2 preparedIntervals
 
 let printCfgWithAnalysis (cfg: CFG) (resultStates: Map<NodeId, State<'A>>) =
     let allNodes =
@@ -339,7 +344,6 @@ let runPreparedAnalysis (prepared: PreparedAnalysis<'A>) (path: string) =
 
         | Some programAst ->
             let cfg = buildCfg (Fresh()) programAst
-
             let resultStates =
                 analyseFixpoint prepared.Domain cfg prepared.InitialState prepared.Config
 
@@ -355,6 +359,57 @@ let runPreparedAnalysis (prepared: PreparedAnalysis<'A>) (path: string) =
 
             0
 
+let prepareSignAnalysis (config: AnalysisConfig) : PreparedRun =
+    let dom = makeSignDomain ()
+    let startingState = askInitialSignState ()
+
+    let prepared =
+        makePreparedAnalysis
+            "Sign Domain"
+            "Dominio dei segni esteso"
+            dom
+            startingState
+            config
+
+    runPreparedAnalysis prepared
+
+let prepareConstantPropagationAnalysis (config: AnalysisConfig) : PreparedRun =
+    let dom = makeConstantPropagationDomain ()
+    let startingState = askInitialConstantState ()
+
+    let prepared =
+        makePreparedAnalysis
+            "Constant Propagation Domain"
+            "Dominio di propagazione delle costanti"
+            dom
+            startingState
+            config
+
+    runPreparedAnalysis prepared
+
+let prepareIntervalAnalysis (config: AnalysisConfig) : PreparedRun =
+    let (minBound, maxBound) = askIntervalDomainParameters ()
+
+    if not (boundLe minBound maxBound) then
+        printfn ""
+        printfn "Hai inserito m > n."
+        printfn "Int_{m,n} coincide con il Constant Propagation Domain."
+        prepareConstantPropagationAnalysis config
+    else
+        let createVarBound = makeCreateVarBound minBound maxBound
+        let dom = makeIntervalDomain minBound maxBound
+        let startingState = askInitialIntervalState createVarBound
+
+        let prepared =
+            makePreparedAnalysis
+                "Intervals Domain"
+                (sprintf "Parametri dominio: [%A, %A]" minBound maxBound)
+                dom
+                startingState
+                config
+
+        runPreparedAnalysis prepared
+
 [<EntryPoint>]
 let main argv =
     if argv.Length <> 1 then
@@ -364,14 +419,10 @@ let main argv =
         let path = argv[0]
         let config = askAnalysisConfig ()
 
-        match chooseDomain() with
-        | ConstantPropagation ->
-            let prepared = prepareConstantPropagationAnalysis config
-            runPreparedAnalysis prepared path
+        let run =
+            match chooseDomain() with
+            | ConstantPropagation -> prepareConstantPropagationAnalysis config
+            | Intervals -> prepareIntervalAnalysis config
+            | Sign -> prepareSignAnalysis config
 
-        | Intervals ->
-            match prepareIntervalAnalysis config with
-            | Choice1Of2 preparedIntervals ->
-                runPreparedAnalysis preparedIntervals path
-            | Choice2Of2 preparedConst ->
-                runPreparedAnalysis preparedConst path
+        run path

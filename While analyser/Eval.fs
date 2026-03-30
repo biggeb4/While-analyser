@@ -31,8 +31,7 @@ type Domain<'A> =
 
     constInt : int -> 'A
     inputInt : Bound * Bound -> 'A 
-    assume : (State<'A> * Cond -> State<'A>)
-    refine : ((State<'A> * Cond) -> State<'A>) option 
+    AssumeAndRefine : ((State<'A> * Cond) -> State<'A>) 
   }
 
 let mutable warnings : Set<string> = Set.empty

@@ -32,7 +32,10 @@ module internal Cfg =
             ||> Map.fold (fun acc k v ->
                 let cur = acc |> Map.tryFind k |> Option.defaultValue []
                 acc |> Map.add k (cur @ v))
-        { g1 with Edges = edges }
+
+        { g1 with
+            Edges = edges
+            WhileHeaders = Set.union g1.WhileHeaders g2.WhileHeaders }
 
     let addWhileHeader (n: NodeId) (g: CFG) =
         { g with WhileHeaders = g.WhileHeaders |> Set.add n }
@@ -144,53 +147,3 @@ let labelToString lbl =
     | GuardWhile(c,true) -> sprintf "[%s] true" (condToString c)
     | GuardWhile(c,false) -> sprintf "[%s] false" (condToString c)
     | Assert c -> sprintf "assert %s" (condToString c)
-
-let printCfg (cfg: CFG) =
-    printfn "================ CFG ================"
-    printfn "Entry: %d" cfg.Entry
-    printfn "Exit : %d" cfg.Exit
-    printfn ""
-
-    let visited = System.Collections.Generic.HashSet<NodeId>()
-    let queue = System.Collections.Generic.Queue<NodeId>()
-    queue.Enqueue cfg.Entry
-    visited.Add cfg.Entry |> ignore
-
-    while queue.Count > 0 do
-        let node = queue.Dequeue()
-
-        match Map.tryFind node cfg.Edges with
-        | Some edges ->
-            for (lbl, target) in edges do
-                printfn "%d --%s--> %d"
-                    node
-                    (labelToString lbl)
-                    target
-
-                if not (visited.Contains target) then
-                    visited.Add target |> ignore
-                    queue.Enqueue target
-        | None -> ()
-
-    printfn "====================================="
-   
-let printCfgByNode (cfg: CFG) =
-    printfn "================ CFG ================"
-    printfn "Entry: %d" cfg.Entry
-    printfn "Exit : %d" cfg.Exit
-    printfn ""
-
-    cfg.Edges
-    |> Map.toList
-    |> List.sortBy fst
-    |> List.iter (fun (fromNode, edges) ->
-        edges
-        |> List.iter (fun (lbl, toNode) ->
-            printfn "%d --%s--> %d"
-                fromNode
-                (labelToString lbl)
-                toNode
-        )
-    )
-
-    printfn "====================================="

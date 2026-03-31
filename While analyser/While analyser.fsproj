@@ -14,6 +14,7 @@
     <Compile Include="IntervalDomain.fs" />
     <Compile Include="ConstantPropagationDomain.fs" />
     <Compile Include="SignDomain.fs" />
+    <Compile Include="CongruenceDomain.fs" />
     <Compile Include="Analyser.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>

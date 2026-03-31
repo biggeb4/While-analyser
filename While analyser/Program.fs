@@ -8,11 +8,13 @@ open Eval
 open IntervalDomain
 open ConstantPropagationDomain
 open SignDomain
+open CongruenceDomain
 
 type ImplementedDomain =
     | Intervals
     | ConstantPropagation
     | Sign
+    | Congruence
 
 type PreparedAnalysis<'A> =
     { Name : string
@@ -58,6 +60,26 @@ let rec askInt (prompt: string) =
         printfn "Inserisci un intero valido."
         askInt prompt
 
+let rec askCong () =
+    printf "Inserisci m e r per Cong(m,r) oppure BOT: "
+    let s=Console.ReadLine().Trim()
+    match s.Trim() with
+    | x when x.ToUpper() = "BOT" ->
+        CongruenceValue.Bottom
+
+    | x ->
+        let parts = x.Split([|' '|], System.StringSplitOptions.RemoveEmptyEntries)
+        match parts with
+        | [|a; b|] ->
+            match System.Int32.TryParse(a), System.Int32.TryParse(b) with
+            | (true, m), (true, r) -> Cong (m, r)
+            | _ ->
+                printfn "Inserisci due interi validi oppure BOT."
+                askCong()
+        | _ ->
+            printfn "Formato non valido. Usa: m r oppure BOT."
+            askCong()
+
 let parseBound (s: string) =
     match s.Trim().ToLowerInvariant() with
     | "-inf" | "-infty" | "-infinity" -> Some MinusInf
@@ -91,7 +113,8 @@ let chooseDomain () =
     let implemented =
         [ (1, "Intervals Domain", Intervals)
           (2, "Constant Propagation Domain", ConstantPropagation)
-          (3, "Sign Domain", Sign) ]
+          (3, "Sign Domain", Sign)
+          (4, "Congruence Domain", Congruence) ]
 
     printfn "Seleziona il dominio usando il numero:"
     for (i, name, _) in implemented do
@@ -249,6 +272,22 @@ let askInitialSignState () : State<SignValue> =
           "Le variabili non inserite saranno trattate come Top quando lette nelle espressioni." ]
         askValue
 
+let askInitialCongruenceState () : State<CongruenceValue> =
+    let askValue () =
+        Some (normalizeCong (askCong()))
+
+    askInitialStateGeneric
+        "Inserimento stato iniziale per il dominio di congruenze."
+        [ "Per ogni variabile puoi inserire:"
+          "  - due interi m r per costruire Cong(m, r)"
+          "  - BOT"
+          "Convenzioni:"
+          "  Cong(m, r) con m > 0 rappresenta { x in Z | x ≡ r (mod m) }"
+          "  Cong(0, c) rappresenta la costante esatta {c}"
+          "  Cong(1, 0) rappresenta Top"
+          "Le variabili non inserite saranno trattate come Top quando lette nelle espressioni." ]
+        askValue
+
 let makePreparedAnalysis
     (name: string)
     (info: string)
@@ -387,6 +426,20 @@ let prepareConstantPropagationAnalysis (config: AnalysisConfig) : PreparedRun =
 
     runPreparedAnalysis prepared
 
+let prepareCongruenceAnalysis (config: AnalysisConfig) : PreparedRun =
+    let dom = makeCongruenceDomain ()
+    let startingState = askInitialCongruenceState ()
+
+    let prepared =
+        makePreparedAnalysis
+            "Congruence Domain"
+            "Dominio delle congruenze"
+            dom
+            startingState
+            config
+
+    runPreparedAnalysis prepared
+
 let prepareIntervalAnalysis (config: AnalysisConfig) : PreparedRun =
     let (minBound, maxBound) = askIntervalDomainParameters ()
 
@@ -424,5 +477,6 @@ let main argv =
             | ConstantPropagation -> prepareConstantPropagationAnalysis config
             | Intervals -> prepareIntervalAnalysis config
             | Sign -> prepareSignAnalysis config
+            | Congruence -> prepareCongruenceAnalysis config
 
         run path

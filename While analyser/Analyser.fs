@@ -10,17 +10,22 @@ type AnalysisConfig =
       useNarrowing : bool
       narrowingSteps : int }
 
-let leqState (dom:Domain<'A>) s1 s2 =
+let leqState (dom: Domain<'A>) s1 s2 =
     match s1, s2 with
     | BottomState, _ -> true
     | _, BottomState -> false
     | Vars m1, Vars m2 ->
-        m1
-        |> Map.forall (fun k v1 ->
-            let v2 = m2 |> Map.tryFind k |> Option.defaultValue dom.bottom
+        let keys =
+            Seq.append (Map.keys m1) (Map.keys m2)
+            |> Set.ofSeq
+
+        keys
+        |> Set.forall (fun k ->
+            let v1 = m1 |> Map.tryFind k |> Option.defaultValue dom.top
+            let v2 = m2 |> Map.tryFind k |> Option.defaultValue dom.top
             dom.leq v1 v2)
 
-let lubState (dom:Domain<'A>) s1 s2 =
+let lubState (dom: Domain<'A>) s1 s2 =
     match s1, s2 with
     | BottomState, s
     | s, BottomState -> s
@@ -32,14 +37,14 @@ let lubState (dom:Domain<'A>) s1 s2 =
         let merged =
             keys
             |> Seq.fold (fun acc k ->
-                let v1 = m1 |> Map.tryFind k |> Option.defaultValue dom.bottom
-                let v2 = m2 |> Map.tryFind k |> Option.defaultValue dom.bottom
+                let v1 = m1 |> Map.tryFind k |> Option.defaultValue dom.top
+                let v2 = m2 |> Map.tryFind k |> Option.defaultValue dom.top
                 acc |> Map.add k (dom.join v1 v2)
             ) Map.empty
 
         Vars merged
 
-let widenState (dom:Domain<'A>) s1 s2 =
+let widenState (dom: Domain<'A>) s1 s2 =
     match s1, s2 with
     | BottomState, s
     | s, BottomState -> s
@@ -51,16 +56,16 @@ let widenState (dom:Domain<'A>) s1 s2 =
         let merged =
             keys
             |> Seq.fold (fun acc k ->
-                let v1 = m1 |> Map.tryFind k |> Option.defaultValue dom.bottom
-                let v2 = m2 |> Map.tryFind k |> Option.defaultValue dom.bottom
+                let v1 = m1 |> Map.tryFind k |> Option.defaultValue dom.top
+                let v2 = m2 |> Map.tryFind k |> Option.defaultValue dom.top
                 acc |> Map.add k (dom.widen v1 v2)
             ) Map.empty
 
         Vars merged
 
-let narrowState (dom:Domain<'A>) s1 s2 =
+let narrowState (dom: Domain<'A>) s1 s2 =
     match s1, s2 with
-    | BottomState, _
+    | BottomState, _ -> BottomState
     | _, BottomState -> BottomState
     | Vars m1, Vars m2 ->
         let keys =
@@ -70,14 +75,14 @@ let narrowState (dom:Domain<'A>) s1 s2 =
         let merged =
             keys
             |> Seq.fold (fun acc k ->
-                let v1 = m1 |> Map.tryFind k |> Option.defaultValue dom.bottom
-                let v2 = m2 |> Map.tryFind k |> Option.defaultValue dom.bottom
+                let v1 = m1 |> Map.tryFind k |> Option.defaultValue dom.top
+                let v2 = m2 |> Map.tryFind k |> Option.defaultValue dom.top
                 acc |> Map.add k (dom.narrow v1 v2)
             ) Map.empty
 
         Vars merged
 
-let transfer (dom:Domain<'A>) lbl sIn =
+let transfer (dom: Domain<'A>) lbl sIn =
     match sIn with
     | BottomState -> BottomState
     | Vars vars ->
@@ -85,8 +90,11 @@ let transfer (dom:Domain<'A>) lbl sIn =
         | Epsilon -> sIn
 
         | EdgeLabel.Assign (x, e) ->
-            let b = (evaluateExpr dom sIn e).bound
-            Vars (vars |> Map.add x b)
+            let res = evaluateExpr dom sIn e
+            if not res.EvalError then
+                Vars (vars |> Map.add x res.bound)
+            else
+                BottomState
 
         | EdgeLabel.Assert c ->
             dom.AssumeAndRefine (sIn, c)
@@ -101,7 +109,7 @@ let transfer (dom:Domain<'A>) lbl sIn =
 
         | _ -> sIn
 
-let private runFixpointPhase dom cfg entryState combine initialState =
+let private runAscendingPhase dom cfg entryState combine initialState =
     let mutable inState = initialState
 
     let q = System.Collections.Generic.Queue<NodeId>()
@@ -126,14 +134,16 @@ let private runFixpointPhase dom cfg entryState combine initialState =
                 let oldSucc = inState |> Map.tryFind succ |> Option.defaultValue BottomState
                 let combined = combine succ oldSucc sOut
 
+                // fase crescente: aggiorna se combined non è già contenuto in oldSucc
                 if not (leqState dom combined oldSucc) then
                     inState <- inState |> Map.add succ combined
-                    if inQueue.Add succ then q.Enqueue succ
+                    if inQueue.Add succ then
+                        q.Enqueue succ
 
     inState
 
 let runWideningPhase dom cfg entryState config =
-    let updateCount = System.Collections.Generic.Dictionary<NodeId,int>()
+    let updateCount = System.Collections.Generic.Dictionary<NodeId, int>()
 
     let combine succ oldSucc sOut =
         let count =
@@ -153,27 +163,66 @@ let runWideningPhase dom cfg entryState config =
             updateCount.[succ] <- count + 1
 
         res
-    runFixpointPhase dom cfg entryState combine (Map.empty |> Map.add cfg.Entry entryState)
+
+    runAscendingPhase dom cfg entryState combine (Map.empty |> Map.add cfg.Entry entryState)
+
+let private collectRhs dom cfg entryState currentState =
+    let mutable rhs = Map.empty |> Map.add cfg.Entry entryState
+
+    let getState n =
+        if n = cfg.Entry then entryState
+        else currentState |> Map.tryFind n |> Option.defaultValue BottomState
+
+    for KeyValue(n, outs) in cfg.Edges do
+        let sN = getState n
+
+        match sN with
+        | BottomState -> ()
+        | _ ->
+            for (lbl, succ) in outs do
+                let sOut = transfer dom lbl sN
+                let old =
+                    rhs |> Map.tryFind succ |> Option.defaultValue BottomState
+                rhs <- rhs |> Map.add succ (lubState dom old sOut)
+
+    rhs
 
 let runNarrowingPhase dom cfg entryState baseState steps =
-    let combine succ oldSucc sOut =
-        if Set.contains succ cfg.WhileHeaders then
-            narrowState dom oldSucc sOut
-        else
-            lubState dom oldSucc sOut
-
     let mutable st = baseState
+
     for _ in 1 .. steps do
-        st <- runFixpointPhase dom cfg entryState combine st
+        let rhs = collectRhs dom cfg entryState st
+
+        let keys =
+            Seq.append (Map.keys st) (Map.keys rhs)
+            |> Set.ofSeq
+            |> Set.add cfg.Entry
+
+        let next =
+            keys
+            |> Seq.fold (fun acc n ->
+                if n = cfg.Entry then
+                    acc |> Map.add n entryState
+                else
+                    let oldState =
+                        st |> Map.tryFind n |> Option.defaultValue BottomState
+                    let rhsState =
+                        rhs |> Map.tryFind n |> Option.defaultValue BottomState
+                    let refined = narrowState dom oldState rhsState
+                    acc |> Map.add n refined
+            ) Map.empty
+
+        st <- next
+
     st
 
 let analyseFixpoint
-    (dom:Domain<'A>)
-    (cfg:CFG)
-    (entryState:State<'A>)
-    (config:AnalysisConfig)
+    (dom: Domain<'A>)
+    (cfg: CFG)
+    (entryState: State<'A>)
+    (config: AnalysisConfig)
     : Map<NodeId, State<'A>> =
-    
+
     let widened = runWideningPhase dom cfg entryState config
 
     if config.useNarrowing && config.narrowingSteps > 0 then

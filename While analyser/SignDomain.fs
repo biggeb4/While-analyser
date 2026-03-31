@@ -108,11 +108,8 @@ let mulSign x y = liftBinary mulAtom x y
 let divSign x y =
     if y = Bottom then Bottom
     elif y = Zero then 
-        warnings<-warnings.Add ("Divisione per zero")
         Bottom
     else
-        if (atomsOf y).Contains AZero then
-            warnings<-warnings.Add ("Potrebbe dividere per zero")
         let ys = atomsOf y |> Set.remove AZero
         if Set.isEmpty ys then Bottom
         else
@@ -172,16 +169,18 @@ let makeSignRefiner (dom: Domain<SignValue>) : (State<SignValue> * Cond -> State
                 meetVar dom state x NonZero
 
             | Equi (Var x, Var y) ->
-                let sx = (evaluateExpr dom state (Var x)).bound
-                let sy = (evaluateExpr dom state (Var y)).bound
-                match sx, sy with
-                | Neg, _ -> meetVar dom state y Neg
-                | Zero, _ -> meetVar dom state y Zero
-                | Pos, _ -> meetVar dom state y Pos
-                | _, Neg -> meetVar dom state x Neg
-                | _, Zero -> meetVar dom state x Zero
-                | _, Pos -> meetVar dom state x Pos
-                | _ -> state
+                let ev1 = evaluateExpr dom state (Var x)
+                let ev2 = evaluateExpr dom state (Var y)
+                if ev1.EvalError || ev2.EvalError then BottomState
+                else
+                    match ev1.bound, ev2.bound with
+                    | Neg, _ -> meetVar dom state y Neg
+                    | Zero, _ -> meetVar dom state y Zero
+                    | Pos, _ -> meetVar dom state y Pos
+                    | _, Neg -> meetVar dom state x Neg
+                    | _, Zero -> meetVar dom state x Zero
+                    | _, Pos -> meetVar dom state x Pos
+                    | _ -> state
 
             | Min (Var x, Int 0)
             | Mag (Int 0, Var x) ->
@@ -215,50 +214,57 @@ let makeSignRefiner (dom: Domain<SignValue>) : (State<SignValue> * Cond -> State
                 elif c = 0 then meetVar dom state x NonNeg
                 else state
 
-            | MinEqui (Var x, Var y) ->
-                let sx = (evaluateExpr dom state (Var x)).bound
-                let sy = (evaluateExpr dom state (Var y)).bound
+            | MinEqui (Var x, Var y) | MagEqui(Var y,Var x) ->
+                let ev1 = evaluateExpr dom state (Var x)
+                let ev2 = evaluateExpr dom state (Var y)
+                if ev1.EvalError || ev2.EvalError then BottomState
+                else
+                    let sx,sy = ev1.bound,ev2.bound
+                    let s1 =
+                        if sy = Neg || sy = Zero || sy = NonPos then
+                            meetVar dom state x NonPos
+                        else
+                            state
 
-                let s1 =
-                    if sy = Neg || sy = Zero || sy = NonPos then
-                        meetVar dom state x NonPos
-                    else
-                        state
+                    let s2 =
+                        if sx = Pos || sx = Zero || sx = NonNeg then
+                            meetVar dom s1 y NonNeg
+                        else
+                            s1
 
-                let s2 =
-                    if sx = Pos || sx = Zero || sx = NonNeg then
-                        meetVar dom s1 y NonNeg
-                    else
-                        s1
+                    s2
 
-                s2
+            | Min (Var x, Var y) | Mag (Var y, Var x) ->
+                let ev1 = evaluateExpr dom state (Var x)
+                let ev2 = evaluateExpr dom state (Var y)
+                if ev1.EvalError || ev2.EvalError then BottomState
+                else
+                    let sx,sy = ev1.bound,ev2.bound
+                    let s1 =
+                        if sy = Neg || sy = Zero || sy = NonPos then
+                            meetVar dom state x Neg
+                        else
+                            state
 
-            | Min (Var x, Var y) ->
-                let sx = (evaluateExpr dom state (Var x)).bound
-                let sy = (evaluateExpr dom state (Var y)).bound
+                    let s2 =
+                        if sx = Pos || sx = Zero || sx = NonNeg then
+                            meetVar dom s1 y Pos
+                        else
+                            s1
 
-                let s1 =
-                    if sy = Neg || sy = Zero || sy = NonPos then
-                        meetVar dom state x Neg
-                    else
-                        state
-
-                let s2 =
-                    if sx = Pos || sx = Zero || sx = NonNeg then
-                        meetVar dom s1 y Pos
-                    else
-                        s1
-
-                s2
+                    s2
 
             | Diff (Var x, Var y) ->
-                let sx = (evaluateExpr dom state (Var x)).bound
-                let sy = (evaluateExpr dom state (Var y)).bound
-                match sx, sy with
-                | Zero, Zero
-                | Neg, Neg
-                | Pos, Pos -> BottomState
-                | _ -> state
+                let ev1 = evaluateExpr dom state (Var x)
+                let ev2 = evaluateExpr dom state (Var y)
+                if ev1.EvalError || ev2.EvalError then BottomState
+                else
+                    let sx,sy = ev1.bound,ev2.bound
+                    match sx, sy with
+                    | Zero, Zero
+                    | Neg, Neg
+                    | Pos, Pos -> BottomState
+                    | _ -> state
 
             | _ ->
                 state
@@ -283,6 +289,13 @@ let makeSignDomain () : Domain<SignValue> =
           sub = subSign
           mul = mulSign
           div = divSign
+          IsZero = function
+              | Zero -> true
+              | _ -> false
+          MayBeZero = function
+              | Neg
+              | Pos -> false
+              | _ -> true
 
           constInt = constInt
           inputInt = inputInt

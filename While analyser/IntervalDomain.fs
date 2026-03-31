@@ -233,12 +233,10 @@ let makeIntervalDomain (minBound: Bound) (maxBound: Bound) : Domain<VariableBoun
 
             // denominatore esattamente zero
             if l2 = Finite 0 && u2 = Finite 0 then
-                warnings<-warnings.Add ("Divisione per zero")
                 Bottom
 
             // denominatore contiene zero: split
             elif containsZero b then
-                warnings<-warnings.Add ("Potrebbe dividere per zero")
                 let parts =
                     [ if boundLt l2 (Finite 0) then yield (l2, Finite -1)
                       if boundLt (Finite 0) u2 then yield (Finite 1, u2) ]
@@ -285,6 +283,11 @@ let makeIntervalDomain (minBound: Bound) (maxBound: Bound) : Domain<VariableBoun
           sub = subIntervals
           mul = mulIntervals
           div = divIntervals
+          IsZero = function
+            | Bottom -> false
+            | Interval (l, u) ->
+                boundLe (Finite 0) u && boundLe l (Finite 0)
+          MayBeZero = containsZero
 
           constInt = fun n -> createVarBound (Finite n, Finite n)
           inputInt = fun (l, u) -> createVarBound (l, u)
@@ -470,43 +473,51 @@ let makeIntervalDomain (minBound: Bound) (maxBound: Bound) : Domain<VariableBoun
             | Equi (e1, e2) ->
                 let ev1 = evaluateExpr dom state e1
                 let ev2 = evaluateExpr dom state e2
-                let trace = mergeMaps ev1.steps ev2.steps
-                let common = intersect ev1.bound ev2.bound
-                let s1 = refineExpr state e1 common trace
-                refineExpr s1 e2 common trace
+                if ev1.EvalError || ev2.EvalError then BottomState
+                else
+                    let trace = mergeMaps ev1.steps ev2.steps
+                    let common = intersect ev1.bound ev2.bound
+                    let s1 = refineExpr state e1 common trace
+                    refineExpr s1 e2 common trace
 
             | MinEqui (e1, e2)
             | MagEqui (e2, e1) ->
                 let ev1 = evaluateExpr dom state e1
                 let ev2 = evaluateExpr dom state e2
-                let trace = mergeMaps ev1.steps ev2.steps
-                let (l1, _) = getLU ev1.bound
-                let (_, u2) = getLU ev2.bound
-                let t1 = createVarBound (MinusInf, u2)
-                let t2 = createVarBound (l1, PlusInf)
-                state
-                |> fun s -> refineExpr s e1 t1 trace
-                |> fun s -> refineExpr s e2 t2 trace
+                if ev1.EvalError || ev2.EvalError then BottomState
+                else
+                    let trace = mergeMaps ev1.steps ev2.steps
+                    let (l1, _) = getLU ev1.bound
+                    let (_, u2) = getLU ev2.bound
+                    let t1 = createVarBound (MinusInf, u2)
+                    let t2 = createVarBound (l1, PlusInf)
+                    state
+                    |> fun s -> refineExpr s e1 t1 trace
+                    |> fun s -> refineExpr s e2 t2 trace
 
             | Min (e1, e2)
             | Mag (e2, e1) ->
                 let ev1 = evaluateExpr dom state e1
                 let ev2 = evaluateExpr dom state e2
-                let trace = mergeMaps ev1.steps ev2.steps
-                let (l1, _) = getLU ev1.bound
-                let (_, u2) = getLU ev2.bound
-                let t1 = createVarBound (MinusInf, predBound u2)
-                let t2 = createVarBound (succBound l1, PlusInf)
-                state
-                |> fun s -> refineExpr s e1 t1 trace
-                |> fun s -> refineExpr s e2 t2 trace
+                if ev1.EvalError || ev2.EvalError then BottomState
+                else
+                    let trace = mergeMaps ev1.steps ev2.steps
+                    let (l1, _) = getLU ev1.bound
+                    let (_, u2) = getLU ev2.bound
+                    let t1 = createVarBound (MinusInf, predBound u2)
+                    let t2 = createVarBound (succBound l1, PlusInf)
+                    state
+                    |> fun s -> refineExpr s e1 t1 trace
+                    |> fun s -> refineExpr s e2 t2 trace
 
             | Diff (e1, e2) ->
                 let ev1 = evaluateExpr dom state e1
                 let ev2 = evaluateExpr dom state e2
-                match isSingleton ev1.bound, isSingleton ev2.bound with
-                | Some a, Some b when a = b -> BottomState
-                | _ -> state
+                if ev1.EvalError || ev2.EvalError then BottomState
+                else
+                    match isSingleton ev1.bound, isSingleton ev2.bound with
+                    | Some a, Some b when a = b -> BottomState
+                    | _ -> state
 
             | _ ->
                 state

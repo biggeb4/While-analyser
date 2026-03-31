@@ -194,7 +194,6 @@ let makeConstantPropagationRefiner (dom: Domain<ConstantValue>) : (State<Constan
 
                     match b2 with
                     | Const 0 ->
-                        warnings<-warnings.Add ("Divisione per zero")
                         BottomState
                     | Const 1 ->
                         refineExprToConst state e1 (Const k) trace
@@ -209,70 +208,74 @@ let makeConstantPropagationRefiner (dom: Domain<ConstantValue>) : (State<Constan
             let ev1 = evaluateExpr dom state e1
             let ev2 = evaluateExpr dom state e2
             let trace = mergeMaps ev1.steps ev2.steps
+            if ev1.EvalError || ev2.EvalError then BottomState
+            else
+                match ev1.bound, ev2.bound with
+                | Bottom, _
+                | _, Bottom ->
+                    BottomState
 
-            match ev1.bound, ev2.bound with
-            | Bottom, _
-            | _, Bottom ->
-                BottomState
+                | Const c1, Const c2 ->
+                    if c1 = c2 then state else BottomState
 
-            | Const c1, Const c2 ->
-                if c1 = c2 then state else BottomState
+                | Const c, _ ->
+                    refineExprToConst state e2 (Const c) trace
 
-            | Const c, _ ->
-                refineExprToConst state e2 (Const c) trace
+                | _, Const c ->
+                    refineExprToConst state e1 (Const c) trace
 
-            | _, Const c ->
-                refineExprToConst state e1 (Const c) trace
-
-            | _ ->
-                state
+                | _ ->
+                    state
 
         | Diff (e1, e2) ->
             let ev1 = evaluateExpr dom state e1
             let ev2 = evaluateExpr dom state e2
+            if ev1.EvalError || ev2.EvalError then BottomState
+            else
+                match ev1.bound, ev2.bound with
+                | Bottom, _
+                | _, Bottom ->
+                    BottomState
 
-            match ev1.bound, ev2.bound with
-            | Bottom, _
-            | _, Bottom ->
-                BottomState
+                | Const c1, Const c2 ->
+                    if c1 = c2 then BottomState else state
 
-            | Const c1, Const c2 ->
-                if c1 = c2 then BottomState else state
-
-            | _ ->
-                state
+                | _ ->
+                    state
 
         | Min (e1, e2)
         | Mag (e2, e1) ->
             let ev1 = evaluateExpr dom state e1
             let ev2 = evaluateExpr dom state e2
+            if ev1.EvalError || ev2.EvalError then BottomState
+            else
+                match ev1.bound, ev2.bound with
+                | Bottom, _
+                | _, Bottom ->
+                    BottomState
 
-            match ev1.bound, ev2.bound with
-            | Bottom, _
-            | _, Bottom ->
-                BottomState
+                | Const c1, Const c2 ->
+                    if c1 < c2 then state else BottomState
 
-            | Const c1, Const c2 ->
-                if c1 < c2 then state else BottomState
-
-            | _ ->
-                state
+                | _ ->
+                    state
 
         | MinEqui (e1, e2)
         | MagEqui (e2, e1) ->
             let ev1 = evaluateExpr dom state e1
             let ev2 = evaluateExpr dom state e2
+            if ev1.EvalError || ev2.EvalError then BottomState
+            else
+                match ev1.bound, ev2.bound with
+                | Bottom, _
+                | _, Bottom ->
+                    BottomState
 
-            match ev1.bound, ev2.bound with
-            | Bottom, _
-            | _, Bottom ->
-                BottomState
+                | Const c1, Const c2 ->
+                    if c1 <= c2 then state else BottomState
 
-            | Const c1, Const c2 ->
-                if c1 <= c2 then state else BottomState
-
-            | _ ->
-                state
+                | _ ->
+                    state
 
         | _ ->
             state
@@ -301,6 +304,16 @@ let makeConstantPropagationDomain () : Domain<ConstantValue> =
           sub = subConst
           mul = mulConst
           div = divConst
+
+          IsZero = function
+            | Bottom -> false
+            | Top -> false
+            | Const k -> k = 0
+
+          MayBeZero = function
+            | Bottom -> false
+            | Top -> true
+            | Const k -> k = 0
 
           constInt = constInt
           inputInt = inputInt

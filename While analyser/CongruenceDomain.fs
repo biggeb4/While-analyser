@@ -254,7 +254,6 @@ let divCong a b =
     | _, Bottom -> Bottom
 
     | _, Cong (0, 0) ->
-        warnings<- warnings.Add ("Divisione per zero")
         Bottom
 
     | Cong (0, c1), Cong (0, c2) ->
@@ -268,13 +267,9 @@ let divCong a b =
         negCong a
 
     | Cong (0, 0), den ->
-        if mayContainZero den then topCong else Cong (0, 0)
-
-    | _,mayZero ->
-        if mayContainZero mayZero then
-            warnings<- warnings.Add ("Divisione per zero possibile")
-        topCong
-
+        if mayContainZero den then 
+            topCong 
+        else Cong (0, 0)
     | _ ->
         topCong
 
@@ -322,6 +317,11 @@ let makeCongruenceDomain () : Domain<CongruenceValue> =
           sub = subCong
           mul = mulCong
           div = divCong
+
+          IsZero = function
+            | Cong (0, c) -> c = 0
+            | _ -> false
+          MayBeZero = mayContainZero
 
           constInt = constInt
           inputInt = inputInt
@@ -389,7 +389,6 @@ let makeCongruenceDomain () : Domain<CongruenceValue> =
                     let den = boundOf trace e2
                     match den with
                     | Cong (0, 0) -> 
-                        warnings<- warnings.Add ("Divisione per zero")
                         BottomState
                     | _ -> state
 
@@ -404,64 +403,51 @@ let makeCongruenceDomain () : Domain<CongruenceValue> =
                 let ev2 = evaluateExpr dom state e2
                 let trace = mergeMaps ev1.steps ev2.steps
                 let common = dom.meet ev1.bound ev2.bound
-
-                match common with
-                | Bottom ->
-                    BottomState
-                | _ ->
-                    state
-                    |> fun s -> refineExpr s e1 common trace
-                    |> fun s -> refineExpr s e2 common trace
+                if ev1.EvalError || ev2.EvalError then BottomState
+                else
+                    match common with
+                    | Bottom ->
+                        BottomState
+                    | _ ->
+                        state
+                        |> fun s -> refineExpr s e1 common trace
+                        |> fun s -> refineExpr s e2 common trace
 
             | Diff (e1, e2) ->
                 let ev1 = evaluateExpr dom state e1
                 let ev2 = evaluateExpr dom state e2
+                
+                if ev1.EvalError || ev2.EvalError then BottomState
+                else
+                    match ev1.bound, ev2.bound with
+                    | Cong (0, c1), Cong (0, c2) when c1 = c2 ->
+                        BottomState
+                    | _ ->
+                        state
 
-                match ev1.bound, ev2.bound with
-                | Cong (0, c1), Cong (0, c2) when c1 = c2 ->
-                    BottomState
-                | _ ->
-                    state
+            | Min (e1, e2) | Mag(e2,e1) ->
+                let ev1 = (evaluateExpr dom state e1)
+                let ev2 = (evaluateExpr dom state e2)
+                
+                if ev1.EvalError || ev2.EvalError then BottomState
+                else
+                    match ev1.bound, ev2.bound with
+                    | Cong (0, c1), Cong (0, c2) ->
+                        if c1 < c2 then state else BottomState
+                    | _ ->
+                        state
 
-            | Min (e1, e2) ->
-                let b1 = (evaluateExpr dom state e1).bound
-                let b2 = (evaluateExpr dom state e2).bound
-
-                match b1, b2 with
-                | Cong (0, c1), Cong (0, c2) ->
-                    if c1 < c2 then state else BottomState
-                | _ ->
-                    state
-
-            | Mag (e1, e2) ->
-                let b1 = (evaluateExpr dom state e1).bound
-                let b2 = (evaluateExpr dom state e2).bound
-
-                match b1, b2 with
-                | Cong (0, c1), Cong (0, c2) ->
-                    if c1 > c2 then state else BottomState
-                | _ ->
-                    state
-
-            | MinEqui (e1, e2) ->
-                let b1 = (evaluateExpr dom state e1).bound
-                let b2 = (evaluateExpr dom state e2).bound
-
-                match b1, b2 with
-                | Cong (0, c1), Cong (0, c2) ->
-                    if c1 <= c2 then state else BottomState
-                | _ ->
-                    state
-
-            | MagEqui (e1, e2) ->
-                let b1 = (evaluateExpr dom state e1).bound
-                let b2 = (evaluateExpr dom state e2).bound
-
-                match b1, b2 with
-                | Cong (0, c1), Cong (0, c2) ->
-                    if c1 >= c2 then state else BottomState
-                | _ ->
-                    state
+            | MinEqui (e1, e2) | MagEqui(e2,e1) ->
+                let ev1 = (evaluateExpr dom state e1)
+                let ev2 = (evaluateExpr dom state e2)
+                
+                if ev1.EvalError || ev2.EvalError then BottomState
+                else
+                    match ev1.bound, ev2.bound with
+                    | Cong (0, c1), Cong (0, c2) ->
+                        if c1 <= c2 then state else BottomState
+                    | _ ->
+                        state
 
             | _ ->
                 state

@@ -387,15 +387,15 @@ let runPreparedAnalysis (prepared: PreparedAnalysis<'A>) (path: string) =
                 analyseFixpoint prepared.Domain cfg prepared.InitialState prepared.Config
 
             printCfgWithAnalysis cfg resultStates
-
             printfn ""
             printfn "Warnings:"
             if Set.isEmpty warnings then
                 printfn "  Nessun warning."
             else
                 for warning in warnings do
-                    printfn "  %s" warning
-
+                    match warning with
+                    | war, expr ->
+                        printfn "warning  %A in expression %A" war expr
             0
 
 let prepareSignAnalysis (config: AnalysisConfig) : PreparedRun =

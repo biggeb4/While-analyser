@@ -192,7 +192,7 @@ let makeIntervalDomain (minBound: Bound) (maxBound: Bound) : Domain<VariableBoun
     let divIntervals a b =
         match a, b with
         | Bottom, _
-        | _, Bottom -> Bottom
+        | _, Bottom -> Bottom, None
         | Interval (l1, u1), Interval (l2, u2) ->
 
             let divNoZero (dl, du) =
@@ -233,7 +233,12 @@ let makeIntervalDomain (minBound: Bound) (maxBound: Bound) : Domain<VariableBoun
 
             // denominatore esattamente zero
             if l2 = Finite 0 && u2 = Finite 0 then
-                Bottom
+                let warning =
+                    { 
+                    critical = true
+                    name = DivisionByZero 
+                    }
+                Bottom,Some(warning)
 
             // denominatore contiene zero: split
             elif containsZero b then
@@ -243,10 +248,9 @@ let makeIntervalDomain (minBound: Bound) (maxBound: Bound) : Domain<VariableBoun
 
                 parts
                 |> List.map divNoZero
-                |> List.reduce joinIntervals
-
+                |> List.reduce joinIntervals,Some { critical = false; name = MayDivideByZero }
             else
-                divNoZero (l2, u2)
+                divNoZero (l2, u2), None
 
     // ===================================
     // Widening / Narrowing
@@ -283,11 +287,6 @@ let makeIntervalDomain (minBound: Bound) (maxBound: Bound) : Domain<VariableBoun
           sub = subIntervals
           mul = mulIntervals
           div = divIntervals
-          IsZero = function
-            | Bottom -> false
-            | Interval (l, u) ->
-                boundLe (Finite 0) u && boundLe l (Finite 0)
-          MayBeZero = containsZero
 
           constInt = fun n -> createVarBound (Finite n, Finite n)
           inputInt = fun (l, u) -> createVarBound (l, u)
@@ -424,49 +423,51 @@ let makeIntervalDomain (minBound: Bound) (maxBound: Bound) : Domain<VariableBoun
             (target: VariableBound)
             (trace: Map<Expr, VariableBound>) : State<VariableBound> =
 
-            match expr with
-            | Int _ -> state
-            | InputInt _ -> state
+            if state = BottomState then BottomState
+            else
+                match expr with
+                | Int _ -> state
+                | InputInt _ -> state
 
-            | Var x ->
-                refineVarMeet dom state x target
+                | Var x ->
+                    refineVarMeet dom state x target
 
-            | Minus e ->
-                let negTarget =
-                    match target with
-                    | Bottom -> Bottom
-                    | Interval (l, u) -> createVarBound (negateBound u, negateBound l)
-                refineExpr state e negTarget trace
+                | Minus e ->
+                    let negTarget =
+                        match target with
+                        | Bottom -> Bottom
+                        | Interval (l, u) -> createVarBound (negateBound u, negateBound l)
+                    refineExpr state e negTarget trace
 
-            | Add (e1, e2) ->
-                let b1 = boundOf trace e1
-                let b2 = boundOf trace e2
-                let t1 = dom.sub target b2
-                let t2 = dom.sub target b1
-                state
-                |> fun s -> refineExpr s e1 t1 trace
-                |> fun s -> refineExpr s e2 t2 trace
+                | Add (e1, e2) ->
+                    let b1 = boundOf trace e1
+                    let b2 = boundOf trace e2
+                    let t1 = dom.sub target b2
+                    let t2 = dom.sub target b1
+                    state
+                    |> fun s -> refineExpr s e1 t1 trace
+                    |> fun s -> refineExpr s e2 t2 trace
 
-            | Sub (e1, e2) ->
-                let b1 = boundOf trace e1
-                let b2 = boundOf trace e2
-                let t1 = dom.add target b2
-                let t2 = dom.sub b1 target
-                state
-                |> fun s -> refineExpr s e1 t1 trace
-                |> fun s -> refineExpr s e2 t2 trace
+                | Sub (e1, e2) ->
+                    let b1 = boundOf trace e1
+                    let b2 = boundOf trace e2
+                    let t1 = dom.add target b2
+                    let t2 = dom.sub b1 target
+                    state
+                    |> fun s -> refineExpr s e1 t1 trace
+                    |> fun s -> refineExpr s e2 t2 trace
 
-            | Mul (e1, e2) ->
-                let b2 = boundOf trace e2
-                let b1 = boundOf trace e1
-                let t1 = refineMulLeft target b2
-                let t2 = refineMulLeft target b1
-                state
-                |> fun s -> refineExpr s e1 t1 trace
-                |> fun s -> refineExpr s e2 t2 trace
+                | Mul (e1, e2) ->
+                    let b2 = boundOf trace e2
+                    let b1 = boundOf trace e1
+                    let t1 = refineMulLeft target b2
+                    let t2 = refineMulLeft target b1
+                    state
+                    |> fun s -> refineExpr s e1 t1 trace
+                    |> fun s -> refineExpr s e2 t2 trace
 
-            | Div (e1, e2) ->
-                state
+                | Div (e1, e2) ->
+                    state
 
         let refineAtomInterval (state: State<VariableBound>) (cond: Cond) =
             match cond with

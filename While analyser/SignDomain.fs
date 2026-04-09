@@ -106,14 +106,21 @@ let subSign x y = liftBinary subAtom x y
 let mulSign x y = liftBinary mulAtom x y
 
 let divSign x y =
-    if y = Bottom then Bottom
-    elif y = Zero then 
-        Bottom
+    if y = Bottom then
+        Bottom, None
+    elif y = Zero then
+        Bottom, Some { name = DivisionByZero; critical = true }
     else
+        let w =
+            if atomsOf y |> Set.contains AZero then
+                Some { name = MayDivideByZero; critical = false }
+            else
+                None
+
         let ys = atomsOf y |> Set.remove AZero
-        if Set.isEmpty ys then Bottom
-        else
-            let xs = atomsOf x
+        let xs = atomsOf x
+
+        let res =
             seq {
                 for a in xs do
                     for b in ys do
@@ -121,6 +128,8 @@ let divSign x y =
             }
             |> Set.ofSeq
             |> signOfAtoms
+
+        res, w
 
 let widenSign a b = joinSign a b
 let narrowSign a b = meetSign a b
@@ -153,124 +162,176 @@ let private signOfInt n =
     elif n = 0 then Zero
     else Pos
 
+let private containsZero = function
+    | Zero
+    | NonPos
+    | NonNeg
+    | Top -> true
+    | _ -> false
+
+let private refineMulLeft target other =
+    match other with
+    | Bottom -> Bottom
+    | Pos -> target
+    | Neg -> negSign target
+    | Zero ->
+        if containsZero target then Top else Bottom
+    | NonNeg ->
+        if target = Pos then NonNeg
+        elif target = Neg then NonPos
+        elif target = Zero then Top
+        elif target = NonNeg then Top
+        elif target = NonPos then Top
+        elif target = NonZero then Top
+        else Top
+    | NonPos ->
+        if target = Pos then NonPos
+        elif target = Neg then NonNeg
+        elif target = Zero then Top
+        elif target = NonNeg then Top
+        elif target = NonPos then Top
+        elif target = NonZero then Top
+        else Top
+    | NonZero ->
+        if target = Zero then Zero
+        else Top
+    | Top -> Top
+
 let makeSignRefiner (dom: Domain<SignValue>) : (State<SignValue> * Cond -> State<SignValue>) =
 
-    let rec assumeAtom (state: State<SignValue>) (cond: Cond) =
-        match state with
-        | BottomState -> BottomState
-        | _ ->
-            match cond with
-            | Equi (Var x, Int c)
-            | Equi (Int c, Var x) ->
-                meetVar dom state x (signOfInt c)
+    let boundOf (trace: Map<Expr, SignValue>) (e: Expr) =
+        trace |> Map.tryFind e |> Option.defaultValue dom.top
 
-            | Diff (Var x, Int 0)
-            | Diff (Int 0, Var x) ->
-                meetVar dom state x NonZero
+    let rec refineExpr
+        (state: State<SignValue>)
+        (expr: Expr)
+        (target: SignValue)
+        (trace: Map<Expr, SignValue>) : State<SignValue> =
 
-            | Equi (Var x, Var y) ->
-                let ev1 = evaluateExpr dom state (Var x)
-                let ev2 = evaluateExpr dom state (Var y)
-                if ev1.EvalError || ev2.EvalError then BottomState
-                else
-                    match ev1.bound, ev2.bound with
-                    | Neg, _ -> meetVar dom state y Neg
-                    | Zero, _ -> meetVar dom state y Zero
-                    | Pos, _ -> meetVar dom state y Pos
-                    | _, Neg -> meetVar dom state x Neg
-                    | _, Zero -> meetVar dom state x Zero
-                    | _, Pos -> meetVar dom state x Pos
-                    | _ -> state
+        if state = BottomState then BottomState
+        else
+            match expr with
+            | Int c ->
+                let csign = signOfInt c
+                if dom.leq csign target then state else BottomState
 
-            | Min (Var x, Int 0)
-            | Mag (Int 0, Var x) ->
-                meetVar dom state x Neg
-
-            | MinEqui (Var x, Int 0)
-            | MagEqui (Int 0, Var x) ->
-                meetVar dom state x NonPos
-
-            | Mag (Var x, Int 0)
-            | Min (Int 0, Var x) ->
-                meetVar dom state x Pos
-
-            | MagEqui (Var x, Int 0)
-            | MinEqui (Int 0, Var x) ->
-                meetVar dom state x NonNeg
-
-            | Min (Var x, Int c) ->
-                if c <= 0 then meetVar dom state x NonPos else state
-
-            | MinEqui (Var x, Int c) ->
-                if c < 0 then meetVar dom state x Neg
-                elif c = 0 then meetVar dom state x NonPos
-                else state
-
-            | Mag (Var x, Int c) ->
-                if c >= 0 then meetVar dom state x NonNeg else state
-
-            | MagEqui (Var x, Int c) ->
-                if c > 0 then meetVar dom state x Pos
-                elif c = 0 then meetVar dom state x NonNeg
-                else state
-
-            | MinEqui (Var x, Var y) | MagEqui(Var y,Var x) ->
-                let ev1 = evaluateExpr dom state (Var x)
-                let ev2 = evaluateExpr dom state (Var y)
-                if ev1.EvalError || ev2.EvalError then BottomState
-                else
-                    let sx,sy = ev1.bound,ev2.bound
-                    let s1 =
-                        if sy = Neg || sy = Zero || sy = NonPos then
-                            meetVar dom state x NonPos
-                        else
-                            state
-
-                    let s2 =
-                        if sx = Pos || sx = Zero || sx = NonNeg then
-                            meetVar dom s1 y NonNeg
-                        else
-                            s1
-
-                    s2
-
-            | Min (Var x, Var y) | Mag (Var y, Var x) ->
-                let ev1 = evaluateExpr dom state (Var x)
-                let ev2 = evaluateExpr dom state (Var y)
-                if ev1.EvalError || ev2.EvalError then BottomState
-                else
-                    let sx,sy = ev1.bound,ev2.bound
-                    let s1 =
-                        if sy = Neg || sy = Zero || sy = NonPos then
-                            meetVar dom state x Neg
-                        else
-                            state
-
-                    let s2 =
-                        if sx = Pos || sx = Zero || sx = NonNeg then
-                            meetVar dom s1 y Pos
-                        else
-                            s1
-
-                    s2
-
-            | Diff (Var x, Var y) ->
-                let ev1 = evaluateExpr dom state (Var x)
-                let ev2 = evaluateExpr dom state (Var y)
-                if ev1.EvalError || ev2.EvalError then BottomState
-                else
-                    let sx,sy = ev1.bound,ev2.bound
-                    match sx, sy with
-                    | Zero, Zero
-                    | Neg, Neg
-                    | Pos, Pos -> BottomState
-                    | _ -> state
-
-            | _ ->
+            | InputInt _ ->
                 state
 
+            | Var x ->
+                meetVar dom state x target
+
+            | Minus e ->
+                refineExpr state e (negSign target) trace
+
+            | Add (e1, e2) ->
+                let b1 = boundOf trace e1
+                let b2 = boundOf trace e2
+                let t1 = subSign target b2
+                let t2 = subSign target b1
+                state
+                |> fun s -> refineExpr s e1 t1 trace
+                |> fun s -> refineExpr s e2 t2 trace
+
+            | Sub (e1, e2) ->
+                let b1 = boundOf trace e1
+                let b2 = boundOf trace e2
+                let t1 = addSign target b2
+                let t2 = subSign b1 target
+                state
+                |> fun s -> refineExpr s e1 t1 trace
+                |> fun s -> refineExpr s e2 t2 trace
+
+            | Mul (e1, e2) ->
+                let b1 = boundOf trace e1
+                let b2 = boundOf trace e2
+                let t1 = refineMulLeft target b2
+                let t2 = refineMulLeft target b1
+                state
+                |> fun s -> refineExpr s e1 t1 trace
+                |> fun s -> refineExpr s e2 t2 trace
+
+            | Div (_, _) ->
+                state
+
+    let refineAtomSign (state: State<SignValue>) (cond: Cond) =
+        match cond with
+        | Equi (e1, e2) ->
+            let ev1 = evaluateExpr dom state e1
+            let ev2 = evaluateExpr dom state e2
+            if ev1.EvalError || ev2.EvalError then BottomState
+            else
+                let trace = mergeMaps ev1.steps ev2.steps
+                let common = dom.meet ev1.bound ev2.bound
+                let s1 = refineExpr state e1 common trace
+                refineExpr s1 e2 common trace
+
+        | Diff (e1, e2) ->
+            let ev1 = evaluateExpr dom state e1
+            let ev2 = evaluateExpr dom state e2
+            if ev1.EvalError || ev2.EvalError then BottomState
+            else
+                match ev1.bound, ev2.bound with
+                | Zero, Zero
+                | Neg, Neg
+                | Pos, Pos -> BottomState
+                | _ ->
+                    match e1, e2 with
+                    | Var x, Int 0
+                    | Int 0, Var x ->
+                        refineExpr state (Var x) NonZero (mergeMaps ev1.steps ev2.steps)
+                    | _ ->
+                        state
+
+        | MinEqui (e1, e2)
+        | MagEqui (e2, e1) ->
+            let ev1 = evaluateExpr dom state e1
+            let ev2 = evaluateExpr dom state e2
+            if ev1.EvalError || ev2.EvalError then BottomState
+            else
+                let trace = mergeMaps ev1.steps ev2.steps
+
+                let t1 =
+                    match ev2.bound with
+                    | Neg | Zero | NonPos -> NonPos
+                    | _ -> Top
+
+                let t2 =
+                    match ev1.bound with
+                    | Pos | Zero | NonNeg -> NonNeg
+                    | _ -> Top
+
+                state
+                |> fun s -> refineExpr s e1 t1 trace
+                |> fun s -> refineExpr s e2 t2 trace
+
+        | Min (e1, e2)
+        | Mag (e2, e1) ->
+            let ev1 = evaluateExpr dom state e1
+            let ev2 = evaluateExpr dom state e2
+            if ev1.EvalError || ev2.EvalError then BottomState
+            else
+                let trace = mergeMaps ev1.steps ev2.steps
+
+                let t1 =
+                    match ev2.bound with
+                    | Neg | Zero | NonPos -> Neg
+                    | _ -> Top
+
+                let t2 =
+                    match ev1.bound with
+                    | Pos | Zero | NonNeg -> Pos
+                    | _ -> Top
+
+                state
+                |> fun s -> refineExpr s e1 t1 trace
+                |> fun s -> refineExpr s e2 t2 trace
+
+        | _ ->
+            state
+
     fun (state, cond) ->
-        condWith (joinStates dom) assumeAtom (state, cond)
+        condWith (joinStates dom) refineAtomSign (state, cond)
 
 let makeSignDomain () : Domain<SignValue> =
     let dom =
@@ -289,14 +350,6 @@ let makeSignDomain () : Domain<SignValue> =
           sub = subSign
           mul = mulSign
           div = divSign
-          IsZero = function
-              | Zero -> true
-              | _ -> false
-          MayBeZero = function
-              | Neg
-              | Pos -> false
-              | _ -> true
-
           constInt = constInt
           inputInt = inputInt
 

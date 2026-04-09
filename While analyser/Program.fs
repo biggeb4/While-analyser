@@ -132,9 +132,9 @@ let chooseDomain () =
 
 let askAnalysisConfig () =
     let defaultWidening = true
-    let defaultWidenAfter = 3
+    let defaultWidenAfter = 5
     let defaultNarrowing = true
-    let defaultNarrowingSteps = 2
+    let defaultNarrowingSteps = 5
 
     printfn ""
     printfn "Configurazione widening/narrowing:"

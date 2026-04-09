@@ -251,27 +251,29 @@ let divCong a b =
 
     match a, b with
     | Bottom, _
-    | _, Bottom -> Bottom
+    | _, Bottom -> Bottom, None
 
     | _, Cong (0, 0) ->
-        Bottom
+        Bottom,Some { name = DivisionByZero; critical = true }
 
     | Cong (0, c1), Cong (0, c2) ->
-        if c2 = 0 then Bottom
-        else Cong (0, c1 / c2)
+        Cong (0, c1 / c2), None
 
     | _, Cong (0, 1) ->
-        a
+        a, None
 
     | _, Cong (0, -1) ->
-        negCong a
+        negCong a, None
 
     | Cong (0, 0), den ->
         if mayContainZero den then 
-            topCong 
-        else Cong (0, 0)
-    | _ ->
-        topCong
+            topCong, Some { name = MayDivideByZero; critical = false }
+        else Cong (0, 0), None
+    | _,den ->
+        if mayContainZero den then
+            topCong, Some { name = MayDivideByZero; critical = false }
+        else
+            topCong, None
 
 // ======================================================
 // Widening / Narrowing
@@ -317,11 +319,6 @@ let makeCongruenceDomain () : Domain<CongruenceValue> =
           sub = subCong
           mul = mulCong
           div = divCong
-
-          IsZero = function
-            | Cong (0, c) -> c = 0
-            | _ -> false
-          MayBeZero = mayContainZero
 
           constInt = constInt
           inputInt = inputInt

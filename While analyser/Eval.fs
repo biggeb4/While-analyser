@@ -6,9 +6,15 @@ type State<'A> =
     | Vars of Map<string, 'A>
     | BottomState
 
-type Warning =
+type WarningTypes =
     | DivisionByZero
     | MayDivideByZero
+
+type Warning = 
+    {   
+    name: WarningTypes
+    critical: bool
+    }
 
 type EvalRes<'A> =
   { bound: 'A
@@ -31,9 +37,7 @@ type Domain<'A> =
     add : 'A -> 'A -> 'A
     sub : 'A -> 'A -> 'A
     mul : 'A -> 'A -> 'A
-    div : 'A -> 'A -> 'A
-    IsZero: 'A -> bool
-    MayBeZero: 'A -> bool
+    div : 'A -> 'A -> 'A * Option<Warning>
 
     constInt : int -> 'A
     inputInt : Bound * Bound -> 'A 
@@ -95,9 +99,9 @@ let rec evaluateExpr (dom:Domain<'A>) (state:State<'A>) (expr:Expr) : EvalRes<'A
         let r1 = evaluateExpr dom state e1
         let r2 = evaluateExpr dom state e2
         let res = dom.div r1.bound r2.bound
-        if dom.IsZero r2.bound then
-            warnings <- warnings |> Set.add (DivisionByZero,expr)
-        elif dom.MayBeZero r2.bound then
-            warnings<- warnings |> Set.add (MayDivideByZero,expr)
-        let err = r1.EvalError || r2.EvalError || dom.IsZero r2.bound
-        mk res (Set.union r1.vars r2.vars) (mergeMaps r1.steps r2.steps |> Map.add expr res) err
+        match res with
+            | res, Some w ->
+                warnings <- warnings |> Set.add (w,expr)
+                mk res (Set.union r1.vars r2.vars) (mergeMaps r1.steps r2.steps |> Map.add expr res) (r1.EvalError || r2.EvalError || w.critical)
+            | res, None ->
+                mk res (Set.union r1.vars r2.vars) (mergeMaps r1.steps r2.steps |> Map.add expr res) (r1.EvalError || r2.EvalError)

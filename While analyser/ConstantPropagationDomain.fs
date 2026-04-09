@@ -76,10 +76,10 @@ let mulConst a b =
 let divConst a b =
     match a, b with
     | Bottom, _
-    | _, Bottom -> Bottom
-    | _, Const 0 -> Bottom
-    | Const x, Const y -> Const (x / y)
-    | _ -> Top
+    | _, Bottom -> Bottom, None
+    | _, Const 0 -> Bottom, Some { name = DivisionByZero; critical = true }
+    | Const x, Const y -> Const (x / y), None
+    | _ -> Top, None
 
 // ===================================
 // Widening / Narrowing
@@ -304,16 +304,6 @@ let makeConstantPropagationDomain () : Domain<ConstantValue> =
           sub = subConst
           mul = mulConst
           div = divConst
-
-          IsZero = function
-            | Bottom -> false
-            | Top -> false
-            | Const k -> k = 0
-
-          MayBeZero = function
-            | Bottom -> false
-            | Top -> true
-            | Const k -> k = 0
 
           constInt = constInt
           inputInt = inputInt

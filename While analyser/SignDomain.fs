@@ -292,13 +292,15 @@ let makeSignRefiner (dom: Domain<SignValue>) : (State<SignValue> * Cond -> State
                 let trace = mergeMaps ev1.steps ev2.steps
 
                 let t1 =
-                    match ev2.bound with
-                    | Neg | Zero | NonPos -> NonPos
+                    match ev2.bound,e2 with
+                    |_, Int -1 -> Neg
+                    | Neg,_ | Zero,_ | NonPos,_ -> NonPos
                     | _ -> Top
 
                 let t2 =
-                    match ev1.bound with
-                    | Pos | Zero | NonNeg -> NonNeg
+                    match ev1.bound,e1 with
+                    |_, Int 1 -> Pos
+                    | Pos,_ | Zero,_ | NonNeg,_ -> NonNeg
                     | _ -> Top
 
                 state
@@ -314,13 +316,15 @@ let makeSignRefiner (dom: Domain<SignValue>) : (State<SignValue> * Cond -> State
                 let trace = mergeMaps ev1.steps ev2.steps
 
                 let t1 =
-                    match ev2.bound with
-                    | Neg | Zero | NonPos -> Neg
+                    match ev2.bound,e2 with
+                    |_, Int 1 -> NonPos
+                    | Neg,_ | Zero,_ | NonPos,_ -> Neg
                     | _ -> Top
 
                 let t2 =
-                    match ev1.bound with
-                    | Pos | Zero | NonNeg -> Pos
+                    match ev1.bound,e1 with
+                    |_, Int -1 -> NonNeg
+                    | Pos,_ | Zero,_ | NonNeg,_ -> Pos
                     | _ -> Top
 
                 state

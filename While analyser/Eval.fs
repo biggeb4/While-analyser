@@ -26,6 +26,7 @@ type Domain<'A> =
   { 
     bottom : 'A
     top : 'A
+    zero : 'A
 
     leq : 'A -> 'A -> bool
     join : 'A -> 'A -> 'A
@@ -78,15 +79,25 @@ let rec evaluateExpr (dom:Domain<'A>) (state:State<'A>) (expr:Expr) : EvalRes<'A
         let r1 = evaluateExpr dom state e1
         let r2 = evaluateExpr dom state e2
         let err = r1.EvalError || r2.EvalError
-        let res = dom.add r1.bound r2.bound
-        mk res (Set.union r1.vars r2.vars) (mergeMaps r1.steps r2.steps |> Map.add expr res) err
+        match e1,e2 with
+            |Var (x),Minus(Var (y)) | Minus(Var (x)),Var (y) when x=y ->
+                let res=dom.zero
+                mk res (Set.singleton x) (mergeMaps r1.steps r2.steps |> Map.add expr res) err
+            | _->
+                let res = dom.add r1.bound r2.bound
+                mk res (Set.union r1.vars r2.vars) (mergeMaps r1.steps r2.steps |> Map.add expr res) err
 
     | Sub (e1,e2) ->
         let r1 = evaluateExpr dom state e1
         let r2 = evaluateExpr dom state e2
         let err = r1.EvalError || r2.EvalError
-        let res = dom.sub r1.bound r2.bound
-        mk res (Set.union r1.vars r2.vars) (mergeMaps r1.steps r2.steps |> Map.add expr res) err
+        match e1,e2 with
+            |Var (x),Var (y) when x=y ->
+                let res=dom.zero
+                mk res (Set.singleton x) (mergeMaps r1.steps r2.steps |> Map.add expr res) err
+            | _->
+                let res = dom.sub r1.bound r2.bound
+                mk res (Set.union r1.vars r2.vars) (mergeMaps r1.steps r2.steps |> Map.add expr res) err
 
     | Mul (e1,e2) ->
         let r1 = evaluateExpr dom state e1

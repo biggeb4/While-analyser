@@ -274,6 +274,7 @@ let makeIntervalDomain (minBound: Bound) (maxBound: Bound) : Domain<VariableBoun
     let dom=
         { bottom = Bottom
           top = createVarBound (MinusInf, PlusInf)
+          zero = createVarBound (Finite 0, Finite 0)
 
           leq = leqIntervals
           join = joinIntervals
@@ -467,7 +468,15 @@ let makeIntervalDomain (minBound: Bound) (maxBound: Bound) : Domain<VariableBoun
                     |> fun s -> refineExpr s e2 t2 trace
 
                 | Div (e1, e2) ->
-                    state
+                    let b2 = boundOf trace e2
+                    match b2 with
+                    | Interval (Finite 0, Finite 0) ->
+                        BottomState
+                    | Interval(Finite 1, Finite 1) ->
+                        refineExpr state e1 target trace
+                    | Interval(Finite -1, Finite -1) ->
+                        refineExpr state e1 (minusInterval target) trace
+                    | _ -> state
 
         let refineAtomInterval (state: State<VariableBound>) (cond: Cond) =
             match cond with

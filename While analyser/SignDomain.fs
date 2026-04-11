@@ -200,7 +200,7 @@ let private refineMulLeft target other =
 let makeSignRefiner (dom: Domain<SignValue>) : (State<SignValue> * Cond -> State<SignValue>) =
 
     let boundOf (trace: Map<Expr, SignValue>) (e: Expr) =
-        trace |> Map.tryFind e |> Option.defaultValue dom.top
+        trace |> Map.tryFind e |> Option.defaultValue Top
 
     let rec refineExpr
         (state: State<SignValue>)
@@ -213,7 +213,7 @@ let makeSignRefiner (dom: Domain<SignValue>) : (State<SignValue> * Cond -> State
             match expr with
             | Int c ->
                 let csign = signOfInt c
-                if dom.leq csign target then state else BottomState
+                if leqSign csign target then state else BottomState
 
             | InputInt _ ->
                 state
@@ -262,7 +262,7 @@ let makeSignRefiner (dom: Domain<SignValue>) : (State<SignValue> * Cond -> State
             if ev1.EvalError || ev2.EvalError then BottomState
             else
                 let trace = mergeMaps ev1.steps ev2.steps
-                let common = dom.meet ev1.bound ev2.bound
+                let common = meetSign ev1.bound ev2.bound
                 let s1 = refineExpr state e1 common trace
                 refineExpr s1 e2 common trace
 
@@ -271,15 +271,19 @@ let makeSignRefiner (dom: Domain<SignValue>) : (State<SignValue> * Cond -> State
             let ev2 = evaluateExpr dom state e2
             if ev1.EvalError || ev2.EvalError then BottomState
             else
+                let trace = mergeMaps ev1.steps ev2.steps
                 match ev1.bound, ev2.bound with
-                | Zero, Zero
-                | Neg, Neg
-                | Pos, Pos -> BottomState
+                | Zero, Zero -> BottomState
+                | Zero,_ ->
+                    refineExpr state e2 NonZero trace
+                |_, Zero -> 
+                    refineExpr state e1 NonZero trace
                 | _ ->
                     match e1, e2 with
-                    | Var x, Int 0
-                    | Int 0, Var x ->
-                        refineExpr state (Var x) NonZero (mergeMaps ev1.steps ev2.steps)
+                    | Var x, Var y when x = y ->
+                        BottomState
+                    | Int c, Int d when c = d ->
+                        BottomState
                     | _ ->
                         state
 
@@ -341,6 +345,7 @@ let makeSignDomain () : Domain<SignValue> =
     let dom =
         { bottom = Bottom
           top = Top
+          zero = Zero
 
           leq = leqSign
           join = joinSign

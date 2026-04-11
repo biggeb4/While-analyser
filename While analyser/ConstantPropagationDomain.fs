@@ -9,12 +9,6 @@ type ConstantValue =
     | Const of int
     | Top
 
-// ===================================
-// Ordine di lattice
-// Bottom <= Const k <= Top
-// Const a e Const b incomparabili se a <> b
-// ===================================
-
 let leqConst a b =
     match a, b with
     | Bottom, _ -> true
@@ -77,6 +71,7 @@ let divConst a b =
     match a, b with
     | Bottom, _
     | _, Bottom -> Bottom, None
+    |_,Top -> Top, Some { name = MayDivideByZero; critical = false }
     | _, Const 0 -> Bottom, Some { name = DivisionByZero; critical = true }
     | Const x, Const y -> Const (x / y), None
     | _ -> Top, None
@@ -218,10 +213,10 @@ let makeConstantPropagationRefiner (dom: Domain<ConstantValue>) : (State<Constan
                 | Const c1, Const c2 ->
                     if c1 = c2 then state else BottomState
 
-                | Const c, _ ->
+                | Const c, Top ->
                     refineExprToConst state e2 (Const c) trace
 
-                | _, Const c ->
+                | Top, Const c ->
                     refineExprToConst state e1 (Const c) trace
 
                 | _ ->
@@ -291,6 +286,7 @@ let makeConstantPropagationDomain () : Domain<ConstantValue> =
     let dom =
         { bottom = Bottom
           top = Top
+          zero = Const 0
 
           leq = leqConst
           join = joinConst

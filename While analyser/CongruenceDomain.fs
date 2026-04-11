@@ -306,6 +306,7 @@ let makeCongruenceDomain () : Domain<CongruenceValue> =
     let dom =
         { bottom = Bottom
           top = topCong
+          zero = constCong 0
 
           leq = leqCong
           join = joinCong

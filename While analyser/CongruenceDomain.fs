@@ -329,7 +329,7 @@ let makeCongruenceDomain () : Domain<CongruenceValue> =
     let boundOf (trace: Map<Expr, CongruenceValue>) (e: Expr) =
         trace |> Map.tryFind e |> Option.defaultValue dom.top
 
-    let rec refineExpr
+    let rec refineExprCong
         (state: State<CongruenceValue>)
         (expr: Expr)
         (target: CongruenceValue)
@@ -359,7 +359,7 @@ let makeCongruenceDomain () : Domain<CongruenceValue> =
 
                 | Minus e ->
                     let t = dom.neg target
-                    refineExpr state e t trace
+                    refineExprCong state e t trace
 
                 | Add (e1, e2) ->
                     let b1 = boundOf trace e1
@@ -368,8 +368,8 @@ let makeCongruenceDomain () : Domain<CongruenceValue> =
                     let t2 = dom.sub target b1
 
                     state
-                    |> fun s -> refineExpr s e1 t1 trace
-                    |> fun s -> refineExpr s e2 t2 trace
+                    |> fun s -> refineExprCong s e1 t1 trace
+                    |> fun s -> refineExprCong s e2 t2 trace
 
                 | Sub (e1, e2) ->
                     let b1 = boundOf trace e1
@@ -378,8 +378,8 @@ let makeCongruenceDomain () : Domain<CongruenceValue> =
                     let t2 = dom.sub b1 target
 
                     state
-                    |> fun s -> refineExpr s e1 t1 trace
-                    |> fun s -> refineExpr s e2 t2 trace
+                    |> fun s -> refineExprCong s e1 t1 trace
+                    |> fun s -> refineExprCong s e2 t2 trace
 
                 | Mul _ -> state
 
@@ -408,8 +408,8 @@ let makeCongruenceDomain () : Domain<CongruenceValue> =
                         BottomState
                     | _ ->
                         state
-                        |> fun s -> refineExpr s e1 common trace
-                        |> fun s -> refineExpr s e2 common trace
+                        |> fun s -> refineExprCong s e1 common trace
+                        |> fun s -> refineExprCong s e2 common trace
 
             | Diff (e1, e2) ->
                 let ev1 = evaluateExpr dom state e1

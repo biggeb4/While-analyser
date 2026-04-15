@@ -202,7 +202,7 @@ let makeSignRefiner (dom: Domain<SignValue>) : (State<SignValue> * Cond -> State
     let boundOf (trace: Map<Expr, SignValue>) (e: Expr) =
         trace |> Map.tryFind e |> Option.defaultValue Top
 
-    let rec refineExpr
+    let rec refineExprSign
         (state: State<SignValue>)
         (expr: Expr)
         (target: SignValue)
@@ -222,7 +222,7 @@ let makeSignRefiner (dom: Domain<SignValue>) : (State<SignValue> * Cond -> State
                 meetVar dom state x target
 
             | Minus e ->
-                refineExpr state e (negSign target) trace
+                refineExprSign state e (negSign target) trace
 
             | Add (e1, e2) ->
                 let b1 = boundOf trace e1
@@ -230,8 +230,8 @@ let makeSignRefiner (dom: Domain<SignValue>) : (State<SignValue> * Cond -> State
                 let t1 = subSign target b2
                 let t2 = subSign target b1
                 state
-                |> fun s -> refineExpr s e1 t1 trace
-                |> fun s -> refineExpr s e2 t2 trace
+                |> fun s -> refineExprSign s e1 t1 trace
+                |> fun s -> refineExprSign s e2 t2 trace
 
             | Sub (e1, e2) ->
                 let b1 = boundOf trace e1
@@ -239,8 +239,8 @@ let makeSignRefiner (dom: Domain<SignValue>) : (State<SignValue> * Cond -> State
                 let t1 = addSign target b2
                 let t2 = subSign b1 target
                 state
-                |> fun s -> refineExpr s e1 t1 trace
-                |> fun s -> refineExpr s e2 t2 trace
+                |> fun s -> refineExprSign s e1 t1 trace
+                |> fun s -> refineExprSign s e2 t2 trace
 
             | Mul (e1, e2) ->
                 let b1 = boundOf trace e1
@@ -248,13 +248,13 @@ let makeSignRefiner (dom: Domain<SignValue>) : (State<SignValue> * Cond -> State
                 let t1 = refineMulLeft target b2
                 let t2 = refineMulLeft target b1
                 state
-                |> fun s -> refineExpr s e1 t1 trace
-                |> fun s -> refineExpr s e2 t2 trace
+                |> fun s -> refineExprSign s e1 t1 trace
+                |> fun s -> refineExprSign s e2 t2 trace
 
             | Div (_, _) ->
                 state
 
-    let refineAtomSign (state: State<SignValue>) (cond: Cond) =
+    let assumeAtomSign (state: State<SignValue>) (cond: Cond) =
         match cond with
         | Equi (e1, e2) ->
             let ev1 = evaluateExpr dom state e1
@@ -263,8 +263,8 @@ let makeSignRefiner (dom: Domain<SignValue>) : (State<SignValue> * Cond -> State
             else
                 let trace = mergeMaps ev1.steps ev2.steps
                 let common = meetSign ev1.bound ev2.bound
-                let s1 = refineExpr state e1 common trace
-                refineExpr s1 e2 common trace
+                let s1 = refineExprSign state e1 common trace
+                refineExprSign s1 e2 common trace
 
         | Diff (e1, e2) ->
             let ev1 = evaluateExpr dom state e1
@@ -275,9 +275,9 @@ let makeSignRefiner (dom: Domain<SignValue>) : (State<SignValue> * Cond -> State
                 match ev1.bound, ev2.bound with
                 | Zero, Zero -> BottomState
                 | Zero,_ ->
-                    refineExpr state e2 NonZero trace
+                    refineExprSign state e2 NonZero trace
                 |_, Zero -> 
-                    refineExpr state e1 NonZero trace
+                    refineExprSign state e1 NonZero trace
                 | _ ->
                     match e1, e2 with
                     | Var x, Var y when x = y ->
@@ -308,8 +308,8 @@ let makeSignRefiner (dom: Domain<SignValue>) : (State<SignValue> * Cond -> State
                     | _ -> Top
 
                 state
-                |> fun s -> refineExpr s e1 t1 trace
-                |> fun s -> refineExpr s e2 t2 trace
+                |> fun s -> refineExprSign s e1 t1 trace
+                |> fun s -> refineExprSign s e2 t2 trace
 
         | Min (e1, e2)
         | Mag (e2, e1) ->
@@ -332,14 +332,14 @@ let makeSignRefiner (dom: Domain<SignValue>) : (State<SignValue> * Cond -> State
                     | _ -> Top
 
                 state
-                |> fun s -> refineExpr s e1 t1 trace
-                |> fun s -> refineExpr s e2 t2 trace
+                |> fun s -> refineExprSign s e1 t1 trace
+                |> fun s -> refineExprSign s e2 t2 trace
 
         | _ ->
             state
 
     fun (state, cond) ->
-        condWith (joinStates dom) refineAtomSign (state, cond)
+        condWith (joinStates dom) assumeAtomSign (state, cond)
 
 let makeSignDomain () : Domain<SignValue> =
     let dom =

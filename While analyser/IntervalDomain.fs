@@ -418,7 +418,7 @@ let makeIntervalDomain (minBound: Bound) (maxBound: Bound) : Domain<VariableBoun
             | Interval (Finite a, Finite b) when a = b -> Some a
             | _ -> None
 
-        let rec refineExpr
+        let rec refineExprInterval
             (state: State<VariableBound>)
             (expr: Expr)
             (target: VariableBound)
@@ -438,7 +438,7 @@ let makeIntervalDomain (minBound: Bound) (maxBound: Bound) : Domain<VariableBoun
                         match target with
                         | Bottom -> Bottom
                         | Interval (l, u) -> createVarBound (negateBound u, negateBound l)
-                    refineExpr state e negTarget trace
+                    refineExprInterval state e negTarget trace
 
                 | Add (e1, e2) ->
                     let b1 = boundOf trace e1
@@ -446,8 +446,8 @@ let makeIntervalDomain (minBound: Bound) (maxBound: Bound) : Domain<VariableBoun
                     let t1 = dom.sub target b2
                     let t2 = dom.sub target b1
                     state
-                    |> fun s -> refineExpr s e1 t1 trace
-                    |> fun s -> refineExpr s e2 t2 trace
+                    |> fun s -> refineExprInterval s e1 t1 trace
+                    |> fun s -> refineExprInterval s e2 t2 trace
 
                 | Sub (e1, e2) ->
                     let b1 = boundOf trace e1
@@ -455,8 +455,8 @@ let makeIntervalDomain (minBound: Bound) (maxBound: Bound) : Domain<VariableBoun
                     let t1 = dom.add target b2
                     let t2 = dom.sub b1 target
                     state
-                    |> fun s -> refineExpr s e1 t1 trace
-                    |> fun s -> refineExpr s e2 t2 trace
+                    |> fun s -> refineExprInterval s e1 t1 trace
+                    |> fun s -> refineExprInterval s e2 t2 trace
 
                 | Mul (e1, e2) ->
                     let b2 = boundOf trace e2
@@ -464,8 +464,8 @@ let makeIntervalDomain (minBound: Bound) (maxBound: Bound) : Domain<VariableBoun
                     let t1 = refineMulLeft target b2
                     let t2 = refineMulLeft target b1
                     state
-                    |> fun s -> refineExpr s e1 t1 trace
-                    |> fun s -> refineExpr s e2 t2 trace
+                    |> fun s -> refineExprInterval s e1 t1 trace
+                    |> fun s -> refineExprInterval s e2 t2 trace
 
                 | Div (e1, e2) ->
                     let b2 = boundOf trace e2
@@ -473,12 +473,12 @@ let makeIntervalDomain (minBound: Bound) (maxBound: Bound) : Domain<VariableBoun
                     | Interval (Finite 0, Finite 0) ->
                         BottomState
                     | Interval(Finite 1, Finite 1) ->
-                        refineExpr state e1 target trace
+                        refineExprInterval state e1 target trace
                     | Interval(Finite -1, Finite -1) ->
-                        refineExpr state e1 (minusInterval target) trace
+                        refineExprInterval state e1 (minusInterval target) trace
                     | _ -> state
 
-        let refineAtomInterval (state: State<VariableBound>) (cond: Cond) =
+        let assumeAtomInterval (state: State<VariableBound>) (cond: Cond) =
             match cond with
             | Equi (e1, e2) ->
                 let ev1 = evaluateExpr dom state e1
@@ -487,8 +487,8 @@ let makeIntervalDomain (minBound: Bound) (maxBound: Bound) : Domain<VariableBoun
                 else
                     let trace = mergeMaps ev1.steps ev2.steps
                     let common = intersect ev1.bound ev2.bound
-                    let s1 = refineExpr state e1 common trace
-                    refineExpr s1 e2 common trace
+                    let s1 = refineExprInterval state e1 common trace
+                    refineExprInterval s1 e2 common trace
 
             | MinEqui (e1, e2)
             | MagEqui (e2, e1) ->
@@ -502,8 +502,8 @@ let makeIntervalDomain (minBound: Bound) (maxBound: Bound) : Domain<VariableBoun
                     let t1 = createVarBound (MinusInf, u2)
                     let t2 = createVarBound (l1, PlusInf)
                     state
-                    |> fun s -> refineExpr s e1 t1 trace
-                    |> fun s -> refineExpr s e2 t2 trace
+                    |> fun s -> refineExprInterval s e1 t1 trace
+                    |> fun s -> refineExprInterval s e2 t2 trace
 
             | Min (e1, e2)
             | Mag (e2, e1) ->
@@ -517,8 +517,8 @@ let makeIntervalDomain (minBound: Bound) (maxBound: Bound) : Domain<VariableBoun
                     let t1 = createVarBound (MinusInf, predBound u2)
                     let t2 = createVarBound (succBound l1, PlusInf)
                     state
-                    |> fun s -> refineExpr s e1 t1 trace
-                    |> fun s -> refineExpr s e2 t2 trace
+                    |> fun s -> refineExprInterval s e1 t1 trace
+                    |> fun s -> refineExprInterval s e2 t2 trace
 
             | Diff (e1, e2) ->
                 let ev1 = evaluateExpr dom state e1
@@ -533,7 +533,7 @@ let makeIntervalDomain (minBound: Bound) (maxBound: Bound) : Domain<VariableBoun
                 state
 
         fun (state, cond) ->
-            condWith (joinStates dom) refineAtomInterval (state, cond)
+            condWith (joinStates dom) assumeAtomInterval (state, cond)
 
     let refine = makeIntervalRefiner dom createVarBound
 

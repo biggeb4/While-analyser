@@ -3,7 +3,7 @@ module Parser
 
 open System
 open FParsec
-// ---------- AST minimale ----------
+// ---------- AST ----------
 [<CustomComparison; CustomEquality>]
 type Bound =
     | MinusInf

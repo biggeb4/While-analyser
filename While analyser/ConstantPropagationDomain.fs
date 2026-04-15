@@ -107,7 +107,7 @@ let makeConstantPropagationRefiner (dom: Domain<ConstantValue>) : (State<Constan
     let boundOf (trace: Map<Expr, ConstantValue>) (e: Expr) =
         trace |> Map.tryFind e |> Option.defaultValue dom.top
 
-    let rec refineExprToConst
+    let rec refineExprConst
         (state: State<ConstantValue>)
         (expr: Expr)
         (target: ConstantValue)
@@ -134,7 +134,7 @@ let makeConstantPropagationRefiner (dom: Domain<ConstantValue>) : (State<Constan
                     refineVarMeet dom state x (Const k)
 
                 | Minus e ->
-                    refineExprToConst state e (Const (-k)) trace
+                    refineExprConst state e (Const (-k)) trace
 
                 | Add (e1, e2) ->
                     let b1 = boundOf trace e1
@@ -142,9 +142,9 @@ let makeConstantPropagationRefiner (dom: Domain<ConstantValue>) : (State<Constan
 
                     match b1, b2 with
                     | Const c1, _ ->
-                        refineExprToConst state e2 (Const (k - c1)) trace
+                        refineExprConst state e2 (Const (k - c1)) trace
                     | _, Const c2 ->
-                        refineExprToConst state e1 (Const (k - c2)) trace
+                        refineExprConst state e1 (Const (k - c2)) trace
                     | _ ->
                         state
 
@@ -154,9 +154,9 @@ let makeConstantPropagationRefiner (dom: Domain<ConstantValue>) : (State<Constan
 
                     match b1, b2 with
                     | Const c1, _ ->
-                        refineExprToConst state e2 (Const (c1 - k)) trace
+                        refineExprConst state e2 (Const (c1 - k)) trace
                     | _, Const c2 ->
-                        refineExprToConst state e1 (Const (k + c2)) trace
+                        refineExprConst state e1 (Const (k + c2)) trace
                     | _ ->
                         state
 
@@ -169,7 +169,7 @@ let makeConstantPropagationRefiner (dom: Domain<ConstantValue>) : (State<Constan
                         if c1 = 0 then
                             if k = 0 then state else BottomState
                         elif k % c1 = 0 then
-                            refineExprToConst state e2 (Const (k / c1)) trace
+                            refineExprConst state e2 (Const (k / c1)) trace
                         else
                             BottomState
 
@@ -177,7 +177,7 @@ let makeConstantPropagationRefiner (dom: Domain<ConstantValue>) : (State<Constan
                         if c2 = 0 then
                             if k = 0 then state else BottomState
                         elif k % c2 = 0 then
-                            refineExprToConst state e1 (Const (k / c2)) trace
+                            refineExprConst state e1 (Const (k / c2)) trace
                         else
                             BottomState
 
@@ -191,13 +191,13 @@ let makeConstantPropagationRefiner (dom: Domain<ConstantValue>) : (State<Constan
                     | Const 0 ->
                         BottomState
                     | Const 1 ->
-                        refineExprToConst state e1 (Const k) trace
+                        refineExprConst state e1 (Const k) trace
                     | Const -1 ->
-                        refineExprToConst state e1 (Const (-k)) trace
+                        refineExprConst state e1 (Const (-k)) trace
                     | _ ->
                         state
 
-    let refineAtomConst (state: State<ConstantValue>) (cond: Cond) =
+    let assumeAtomConst (state: State<ConstantValue>) (cond: Cond) =
         match cond with
         | Equi (e1, e2) ->
             let ev1 = evaluateExpr dom state e1
@@ -214,10 +214,10 @@ let makeConstantPropagationRefiner (dom: Domain<ConstantValue>) : (State<Constan
                     if c1 = c2 then state else BottomState
 
                 | Const c, Top ->
-                    refineExprToConst state e2 (Const c) trace
+                    refineExprConst state e2 (Const c) trace
 
                 | Top, Const c ->
-                    refineExprToConst state e1 (Const c) trace
+                    refineExprConst state e1 (Const c) trace
 
                 | _ ->
                     state
@@ -276,7 +276,7 @@ let makeConstantPropagationRefiner (dom: Domain<ConstantValue>) : (State<Constan
             state
 
     fun (state, cond) ->
-        condWith (joinStates dom) refineAtomConst (state, cond)
+        condWith (joinStates dom) assumeAtomConst (state, cond)
 
 // ===================================
 // Dominio

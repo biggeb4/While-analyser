@@ -25,7 +25,7 @@ let leqState (dom: Domain<'A>) s1 s2 =
             let v2 = m2 |> Map.tryFind k |> Option.defaultValue dom.top
             dom.leq v1 v2)
 
-let lubState (dom: Domain<'A>) s1 s2 =
+let joinStates (dom: Domain<'A>) s1 s2 =
     match s1, s2 with
     | BottomState, s
     | s, BottomState -> s
@@ -145,7 +145,7 @@ let runWideningPhase dom cfg entryState config =
                        && count >= config.widenAfter then
                         widenState dom oldSucc sOut
                     else
-                        lubState dom oldSucc sOut
+                        joinStates dom oldSucc sOut
 
                 let changed = not (leqState dom combined oldSucc)
 
@@ -160,12 +160,10 @@ let runWideningPhase dom cfg entryState config =
 let private collectRhs dom cfg entryState currentState =
     let mutable rhs = Map.empty |> Map.add cfg.Entry entryState
 
-    let getState n =
-        if n = cfg.Entry then entryState
-        else currentState |> Map.tryFind n |> Option.defaultValue BottomState
-
     for KeyValue(n, outs) in cfg.Edges do
-        let sN = getState n
+        let sN = 
+            if n = cfg.Entry then entryState
+            else currentState |> Map.tryFind n |> Option.defaultValue BottomState
 
         match sN with
         | BottomState -> ()
@@ -174,7 +172,7 @@ let private collectRhs dom cfg entryState currentState =
                 let sOut = transfer dom lbl sN
                 let old =
                     rhs |> Map.tryFind succ |> Option.defaultValue BottomState
-                rhs <- rhs |> Map.add succ (lubState dom old sOut)
+                rhs <- rhs |> Map.add succ (joinStates dom old sOut)
 
     rhs
 
@@ -199,7 +197,6 @@ let runNarrowingPhase dom cfg entryState baseState steps =
                         st |> Map.tryFind n |> Option.defaultValue BottomState
                     let rhsState =
                         rhs |> Map.tryFind n |> Option.defaultValue BottomState
-                    printfn "Narrowing at node %d: old = %A, rhs = %A" n oldState rhsState
                     let refined = narrowState dom oldState rhsState
                     acc |> Map.add n refined
             ) Map.empty

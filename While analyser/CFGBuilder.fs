@@ -4,9 +4,7 @@ open Parser
 type NodeId = int
 
 type EdgeLabel =
-    | Epsilon                      
-    | MaxBound of Bound              
-    | MinBound of Bound              
+    | Epsilon              
     | Assign of string * Expr      
     | GuardIf of Cond * bool   
     | GuardWhile of Cond * bool         
@@ -139,8 +137,6 @@ let rec condToString c =
 let labelToString lbl =
     match lbl with
     | Epsilon -> "ε"
-    | MaxBound b -> sprintf "maxBound %s" (boundToString b)
-    | MinBound b -> sprintf "minBound %s" (boundToString b)
     | Assign(x,e) -> sprintf "%s := %s" x (exprToString e)
     | GuardIf(c,true) -> sprintf "[%s] true" (condToString c)
     | GuardIf(c,false) -> sprintf "[%s] false" (condToString c)

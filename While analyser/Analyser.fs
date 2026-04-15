@@ -109,8 +109,10 @@ let transfer (dom: Domain<'A>) lbl sIn =
 
         | _ -> sIn
 
-let private runAscendingPhase dom cfg entryState combine initialState =
-    let mutable inState = initialState
+let runWideningPhase dom cfg entryState config =
+    let updateCount = System.Collections.Generic.Dictionary<NodeId, int>()
+
+    let mutable inState = Map.empty |> Map.add cfg.Entry entryState
 
     let q = System.Collections.Generic.Queue<NodeId>()
     let inQueue = System.Collections.Generic.HashSet<NodeId>()
@@ -123,8 +125,7 @@ let private runAscendingPhase dom cfg entryState combine initialState =
         inQueue.Remove n |> ignore
 
         let sN =
-            if n = cfg.Entry then entryState
-            else inState |> Map.tryFind n |> Option.defaultValue BottomState
+            inState |> Map.tryFind n |> Option.defaultValue BottomState
 
         match Map.tryFind n cfg.Edges with
         | None -> ()
@@ -132,39 +133,29 @@ let private runAscendingPhase dom cfg entryState combine initialState =
             for (lbl, succ) in outs do
                 let sOut = transfer dom lbl sN
                 let oldSucc = inState |> Map.tryFind succ |> Option.defaultValue BottomState
-                let combined = combine succ oldSucc sOut
 
-                // fase crescente: aggiorna se combined non è già contenuto in oldSucc
-                if not (leqState dom combined oldSucc) then
+                let count =
+                    match updateCount.TryGetValue succ with
+                    | true, c -> c
+                    | false, _ -> 0
+
+                let combined =
+                    if config.useWidening
+                       && Set.contains succ cfg.WhileHeaders
+                       && count >= config.widenAfter then
+                        widenState dom oldSucc sOut
+                    else
+                        lubState dom oldSucc sOut
+
+                let changed = not (leqState dom combined oldSucc)
+
+                if changed then
+                    updateCount.[succ] <- count + 1
                     inState <- inState |> Map.add succ combined
                     if inQueue.Add succ then
                         q.Enqueue succ
 
     inState
-
-let runWideningPhase dom cfg entryState config =
-    let updateCount = System.Collections.Generic.Dictionary<NodeId, int>()
-
-    let combine succ oldSucc sOut =
-        let count =
-            match updateCount.TryGetValue succ with
-            | true, c -> c
-            | false, _ -> 0
-
-        let res =
-            if config.useWidening
-               && Set.contains succ cfg.WhileHeaders
-               && count >= config.widenAfter then
-                widenState dom oldSucc sOut
-            else
-                lubState dom oldSucc sOut
-
-        if not (leqState dom res oldSucc) then
-            updateCount.[succ] <- count + 1
-
-        res
-
-    runAscendingPhase dom cfg entryState combine (Map.empty |> Map.add cfg.Entry entryState)
 
 let private collectRhs dom cfg entryState currentState =
     let mutable rhs = Map.empty |> Map.add cfg.Entry entryState
@@ -208,6 +199,7 @@ let runNarrowingPhase dom cfg entryState baseState steps =
                         st |> Map.tryFind n |> Option.defaultValue BottomState
                     let rhsState =
                         rhs |> Map.tryFind n |> Option.defaultValue BottomState
+                    printfn "Narrowing at node %d: old = %A, rhs = %A" n oldState rhsState
                     let refined = narrowState dom oldState rhsState
                     acc |> Map.add n refined
             ) Map.empty
